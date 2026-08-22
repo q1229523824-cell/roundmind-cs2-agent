@@ -17,9 +17,14 @@ from chapter07_cs2_coach.models import (
     AnalysisRequest,
     AnalysisResponse,
     DemoJobResponse,
+    DemoPlayerSelection,
     MatchRecord,
 )
-from chapter07_cs2_coach.demo_jobs import DemoJobManager, DemoQueueFullError
+from chapter07_cs2_coach.demo_jobs import (
+    DemoJobManager,
+    DemoJobStateError,
+    DemoQueueFullError,
+)
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 
 
@@ -101,7 +106,7 @@ def create_app(
     )
     async def create_demo_job(
         file: UploadFile = File(...),
-        player_name: str = Form(..., min_length=1, max_length=80),
+        player_name: str | None = Form(default=None, max_length=80),
         question: str = Form(DEFAULT_QUESTION, min_length=1, max_length=1000),
     ) -> DemoJobResponse:
         filename = Path(file.filename or "").name
@@ -134,7 +139,7 @@ def create_app(
                 return app.state.demo_jobs.submit(
                     path=temporary_path,
                     filename=filename,
-                    player_name=player_name.strip(),
+                    player_name=player_name.strip() if player_name else None,
                     question=question.strip(),
                 )
             except DemoQueueFullError as error:
@@ -156,6 +161,27 @@ def create_app(
             return app.state.demo_jobs.get(job_id)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Demo 解析任务不存在。") from error
+
+    @app.post(
+        "/api/demo-jobs/{job_id}/player",
+        response_model=DemoJobResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["demos"],
+    )
+    def select_demo_player(
+        job_id: str,
+        selection: DemoPlayerSelection,
+    ) -> DemoJobResponse:
+        try:
+            return app.state.demo_jobs.select_player(
+                job_id,
+                player_name=selection.player_name.strip(),
+                question=selection.question.strip(),
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Demo 解析任务不存在。") from error
+        except DemoJobStateError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post("/api/analyze", response_model=AnalysisResponse, tags=["agent"])
     def analyze(request: AnalysisRequest) -> AnalysisResponse:

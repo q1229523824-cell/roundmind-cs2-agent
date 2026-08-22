@@ -41,8 +41,10 @@
           <select id="match-select" aria-describedby="match-help"></select>
           <p id="match-help" class="hint">已经为你准备了一场 Mirage 示例比赛。</p>
 
-          <label for="player-name">Demo 中的游戏昵称</label>
-          <input id="player-name" type="text" placeholder="例如：Learner" autocomplete="off" />
+          <label for="player-select">选择要复盘的玩家</label>
+          <select id="player-select" disabled>
+            <option value="">上传 Demo 后自动读取玩家名单</option>
+          </select>
 
           <label for="match-file" class="upload-box">
             <span class="upload-symbol">＋</span>

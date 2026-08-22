@@ -124,6 +124,31 @@ class CS2DemoMatchParser:
     def __init__(self, parser_factory: ParserFactory | None = None) -> None:
         self._parser_factory = parser_factory or _default_parser_factory
 
+    def list_players(self, path: Path) -> list[str]:
+        """读取 Demo 名单，供前端让用户选择自己的游戏昵称。"""
+        try:
+            parser = self._parser_factory(str(path))
+            header = dict(parser.parse_header())
+            if "PBDEMS2" not in str(header.get("demo_file_stamp", "")):
+                raise DemoParseError("文件不是有效的 CS2 Source 2 Demo。")
+            names = sorted(
+                {
+                    _text(item, "name", "player_name")
+                    for item in _records(parser.parse_player_info())
+                }
+                - {""},
+                key=str.casefold,
+            )
+        except DemoParseError:
+            raise
+        except Exception as error:
+            raise DemoParseError(
+                "Demo 无法读取玩家名单，可能来自暂不兼容的 CS2 版本或文件不完整。"
+            ) from error
+        if not names:
+            raise DemoParseError("Demo 中没有读取到玩家名单。")
+        return names[:20]
+
     def parse(self, path: Path, player_name: str) -> MatchRecord:
         try:
             parser = self._parser_factory(str(path))

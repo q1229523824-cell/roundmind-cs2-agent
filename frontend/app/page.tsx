@@ -49,8 +49,10 @@ type AgentAnalysis = {
 
 type DemoJob = {
   job_id: string;
-  status: "queued" | "parsing" | "completed" | "failed";
+  status: "queued" | "discovering" | "awaiting_player" | "parsing" | "completed" | "failed";
   progress: number;
+  player_name: string | null;
+  available_players: string[];
   match: Match | null;
   analysis: AgentAnalysis | null;
   error: string | null;
@@ -241,7 +243,9 @@ export default function Home() {
   const [question, setQuestion] = useState("请综合分析这场比赛，找出最值得优先改进的问题。");
   const [query, setQuery] = useState(question);
   const [error, setError] = useState("");
-  const [playerName, setPlayerName] = useState("");
+  const [pendingDemoJobId, setPendingDemoJobId] = useState("");
+  const [availablePlayers, setAvailablePlayers] = useState<string[]>([]);
+  const [selectedPlayer, setSelectedPlayer] = useState("");
   const [apiBase, setApiBase] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStatus, setUploadStatus] = useState("");
@@ -295,20 +299,18 @@ export default function Home() {
       setError("Demo 后端尚未连接；目前仍可上传 JSON 或体验内置比赛。");
       return;
     }
-    if (!playerName.trim()) {
-      setError("请先填写你在 Demo 中的游戏昵称。");
-      return;
-    }
     if (file.size > MAX_DEMO_BYTES) {
       setError(`Demo 文件不能超过 ${MAX_DEMO_MB} MB。`);
       return;
     }
     setUploadProgress(0);
     setUploadStatus("正在上传 Demo…");
+    setPendingDemoJobId("");
+    setAvailablePlayers([]);
+    setSelectedPlayer("");
     try {
       const form = new FormData();
       form.append("file", file);
-      form.append("player_name", playerName.trim());
       form.append("question", question.trim() || "请综合复盘这场比赛");
       const job = await new Promise<DemoJob>((resolve, reject) => {
         const request = new XMLHttpRequest();
@@ -326,22 +328,59 @@ export default function Home() {
         request.onerror = () => reject(new Error("无法连接 Demo 解析服务"));
         request.send(form);
       });
-      let current = job;
-      for (let attempt = 0; attempt < 180 && current.status !== "completed"; attempt += 1) {
-        if (current.status === "failed") throw new Error(current.error ?? "Demo 解析失败");
-        setUploadProgress(Math.max(35, current.progress));
-        setUploadStatus("服务器正在解析回合与玩家事件…");
-        await new Promise((resolve) => window.setTimeout(resolve, 1000));
-        const response = await fetch(`${apiBase}/api/demo-jobs/${current.job_id}`);
-        if (!response.ok) throw new Error("无法查询 Demo 解析进度");
-        current = await response.json();
-      }
-      if (current.status !== "completed" || !current.match) throw new Error("Demo 解析超时，请稍后重试");
-      setMatch(current.match);
-      setRemoteAnalysis(current.analysis);
+      const current = await pollDemoJob(job, true);
+      setPendingDemoJobId(current.job_id);
+      setAvailablePlayers(current.available_players);
+      setUploadProgress(current.progress);
+      setUploadStatus(`已找到 ${current.available_players.length} 名玩家，请选择复盘对象`);
+    } catch (reason) {
+      setUploadProgress(null);
+      setUploadStatus("");
+      setError(reason instanceof Error ? reason.message : "Demo 处理失败");
+    }
+  }
+
+  async function pollDemoJob(job: DemoJob, stopAtPlayerSelection = false) {
+    let current = job;
+    for (let attempt = 0; attempt < 180 && current.status !== "completed"; attempt += 1) {
+      if (current.status === "failed") throw new Error(current.error ?? "Demo 解析失败");
+      if (current.status === "awaiting_player" && stopAtPlayerSelection) return current;
+      setUploadProgress(Math.max(35, current.progress));
+      setUploadStatus(current.status === "discovering"
+        ? "正在读取 Demo 中的玩家名单…"
+        : "服务器正在解析回合与玩家事件…");
+      await new Promise((resolve) => window.setTimeout(resolve, 1000));
+      const response = await fetch(`${apiBase}/api/demo-jobs/${current.job_id}`);
+      if (!response.ok) throw new Error("无法查询 Demo 解析进度");
+      current = await response.json();
+    }
+    if (current.status !== "completed" || !current.match) throw new Error("Demo 解析超时，请稍后重试");
+    return current;
+  }
+
+  async function selectDemoPlayer(playerName: string) {
+    setSelectedPlayer(playerName);
+    if (!playerName || !pendingDemoJobId) return;
+    setError("");
+    setUploadStatus(`正在解析 ${playerName} 的回合事件…`);
+    try {
+      const response = await fetch(`${apiBase}/api/demo-jobs/${pendingDemoJobId}/player`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          player_name: playerName,
+          question: question.trim() || "请综合复盘这场比赛",
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail ?? "无法选择玩家");
+      const completed = await pollDemoJob(body);
+      setMatch(completed.match as Match);
+      setRemoteAnalysis(completed.analysis);
       setQuery(question.trim() || "综合复盘");
       setUploadProgress(100);
       setUploadStatus("Demo 解析完成，临时文件已删除");
+      setPendingDemoJobId("");
     } catch (reason) {
       setUploadProgress(null);
       setUploadStatus("");
@@ -382,8 +421,11 @@ export default function Home() {
       <aside className="controls">
         <p className="eyebrow">01 / MATCH INPUT</p><h2>开始一次复盘</h2>
         <p className="fieldLabel">比赛数据</p><div className="selectLike">{match.player_name} · {match.map_name} · {match.team_score}:{match.opponent_score}</div>
-        <label htmlFor="player-name">Demo 中的游戏昵称</label>
-        <input id="player-name" className="textInput" value={playerName} placeholder="例如：Learner" onChange={(event) => setPlayerName(event.target.value)}/>
+        <label htmlFor="player-select">选择要复盘的玩家</label>
+        <select id="player-select" value={selectedPlayer} disabled={!availablePlayers.length || !pendingDemoJobId} onChange={(event) => selectDemoPlayer(event.target.value)}>
+          <option value="">上传 Demo 后自动读取玩家名单</option>
+          {availablePlayers.map((player) => <option value={player} key={player}>{player}</option>)}
+        </select>
         <label className="upload" htmlFor="match-file">＋<strong>上传 CS2 Demo 或 JSON</strong><small>.dem 最大 {MAX_DEMO_MB} MB · 解析后自动删除</small><input id="match-file" type="file" accept=".dem,.json,application/json" onChange={(event) => upload(event.target.files?.[0])}/></label>
         {uploadProgress !== null && <div className="progress" aria-label={`处理进度 ${uploadProgress}%`}><i style={{ width: `${uploadProgress}%` }}/></div>}
         {uploadStatus && <p className="uploadStatus">{uploadStatus}</p>}

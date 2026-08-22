@@ -2,7 +2,7 @@ const elements = {
   matchSelect: document.querySelector("#match-select"),
   question: document.querySelector("#question"),
   analyzeButton: document.querySelector("#analyze-button"),
-  playerName: document.querySelector("#player-name"),
+  playerSelect: document.querySelector("#player-select"),
   matchFile: document.querySelector("#match-file"),
   uploadProgress: document.querySelector("#upload-progress"),
   uploadProgressBar: document.querySelector("#upload-progress i"),
@@ -21,6 +21,7 @@ const elements = {
 };
 
 const MAX_DEMO_BYTES = 500 * 1024 * 1024;
+let pendingDemoJobId = null;
 
 const loadingMessages = [
   "正在读取基础统计…",
@@ -56,6 +57,17 @@ function fillMatches(matches, selectedId) {
   });
 }
 
+function fillPlayers(players) {
+  elements.playerSelect.innerHTML = '<option value="">请选择一名玩家</option>';
+  players.forEach((player) => {
+    const option = document.createElement("option");
+    option.value = player;
+    option.textContent = player;
+    elements.playerSelect.append(option);
+  });
+  elements.playerSelect.disabled = players.length === 0;
+}
+
 function setUploadProgress(progress) {
   const visible = progress !== null;
   elements.uploadProgress.classList.toggle("hidden", !visible);
@@ -64,13 +76,10 @@ function setUploadProgress(progress) {
 }
 
 function uploadDemo(file) {
-  const playerName = elements.playerName.value.trim();
-  if (!playerName) throw new Error("请先填写你在 Demo 中的游戏昵称。");
   if (file.size > MAX_DEMO_BYTES) throw new Error("Demo 文件不能超过 500 MB。");
 
   const form = new FormData();
   form.append("file", file);
-  form.append("player_name", playerName);
   form.append("question", elements.question.value.trim() || "请综合复盘这场比赛");
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
@@ -92,12 +101,15 @@ function uploadDemo(file) {
   });
 }
 
-async function waitForDemo(job) {
+async function waitForDemo(job, stopAtPlayerSelection = false) {
   let current = job;
   for (let attempt = 0; attempt < 180 && current.status !== "completed"; attempt += 1) {
     if (current.status === "failed") throw new Error(current.error || "Demo 解析失败");
+    if (current.status === "awaiting_player" && stopAtPlayerSelection) return current;
     setUploadProgress(Math.max(35, current.progress));
-    elements.uploadMessage.textContent = "服务器正在解析回合与玩家事件…";
+    elements.uploadMessage.textContent = current.status === "discovering"
+      ? "正在读取 Demo 中的玩家名单…"
+      : "服务器正在解析回合与玩家事件…";
     await new Promise((resolve) => window.setTimeout(resolve, 1000));
     current = await api(`/api/demo-jobs/${current.job_id}`);
   }
@@ -105,6 +117,15 @@ async function waitForDemo(job) {
     throw new Error("Demo 解析超时，请稍后重试。");
   }
   return current;
+}
+
+async function finishDemo(completed) {
+  const match = completed.match;
+  if (!match) throw new Error("Demo 解析完成但未返回比赛数据。");
+  setUploadProgress(100);
+  elements.uploadMessage.textContent = "Demo 解析完成，临时文件已删除。";
+  fillMatches(await api("/api/matches"), match.match_id);
+  if (completed.analysis) renderResult(completed.analysis);
 }
 
 function renderMetrics(summary) {
@@ -181,31 +202,54 @@ elements.matchFile.addEventListener("change", async () => {
   const file = elements.matchFile.files[0];
   if (!file) return;
   try {
-    let match;
     if (file.name.toLowerCase().endsWith(".dem")) {
+      pendingDemoJobId = null;
+      fillPlayers([]);
       setUploadProgress(0);
       elements.uploadMessage.textContent = "正在上传 Demo…";
-      const completed = await waitForDemo(await uploadDemo(file));
-      match = completed.match;
-      setUploadProgress(100);
-      elements.uploadMessage.textContent = "Demo 解析完成，临时文件已删除。";
-      if (completed.analysis) renderResult(completed.analysis);
+      const discovered = await waitForDemo(await uploadDemo(file), true);
+      pendingDemoJobId = discovered.job_id;
+      fillPlayers(discovered.available_players || []);
+      setUploadProgress(discovered.progress);
+      elements.uploadMessage.textContent = `已找到 ${discovered.available_players.length} 名玩家，请选择复盘对象。`;
     } else if (file.name.toLowerCase().endsWith(".json")) {
       const form = new FormData();
       form.append("file", file);
       elements.uploadMessage.textContent = "正在校验 JSON…";
-      match = await api("/api/upload-json", { method: "POST", body: form });
+      const match = await api("/api/upload-json", { method: "POST", body: form });
       elements.uploadMessage.textContent = `已加载 ${match.map_name}，可以开始复盘。`;
+      fillMatches(await api("/api/matches"), match.match_id);
     } else {
       throw new Error("只接受 .dem 或 .json 文件。");
     }
-    const matches = await api("/api/matches");
-    fillMatches(matches, match.match_id);
   } catch (error) {
     setUploadProgress(null);
     elements.uploadMessage.textContent = error.message;
   } finally {
     elements.matchFile.value = "";
+  }
+});
+
+elements.playerSelect.addEventListener("change", async () => {
+  const playerName = elements.playerSelect.value;
+  if (!pendingDemoJobId || !playerName) return;
+  elements.playerSelect.disabled = true;
+  try {
+    elements.uploadMessage.textContent = `正在解析 ${playerName} 的回合事件…`;
+    const job = await api(`/api/demo-jobs/${pendingDemoJobId}/player`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        player_name: playerName,
+        question: elements.question.value.trim() || "请综合复盘这场比赛",
+      }),
+    });
+    await finishDemo(await waitForDemo(job));
+    pendingDemoJobId = null;
+  } catch (error) {
+    setUploadProgress(null);
+    elements.uploadMessage.textContent = error.message;
+    elements.playerSelect.disabled = false;
   }
 });
 

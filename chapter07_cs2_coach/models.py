@@ -97,10 +97,26 @@ class DemoJobResponse(BaseModel):
     """异步 Demo 解析任务的公开状态。"""
 
     job_id: str
-    status: Literal["queued", "parsing", "completed", "failed"]
+    status: Literal[
+        "queued", "discovering", "awaiting_player", "parsing", "completed", "failed"
+    ]
     progress: int = Field(ge=0, le=100)
     filename: str
-    player_name: str
+    player_name: str | None = None
+    available_players: list[str] = Field(default_factory=list, max_length=20)
     match: MatchRecord | None = None
     analysis: AnalysisResponse | None = None
     error: str | None = None
+
+
+class DemoPlayerSelection(BaseModel):
+    """为已上传的 Demo 选择要复盘的玩家。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    player_name: str = Field(min_length=1, max_length=80)
+    question: str = Field(
+        default="请综合分析这场比赛，找出最值得优先改进的问题。",
+        min_length=1,
+        max_length=1000,
+    )

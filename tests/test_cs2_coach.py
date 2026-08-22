@@ -154,6 +154,17 @@ class CS2DemoParserTests(unittest.TestCase):
         self.assertEqual(match.rounds[1].utility_damage, 24)
         self.assertTrue(match.rounds[1].was_traded)
 
+    def test_player_names_can_be_discovered_before_analysis(self):
+        with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:
+            handle.write(b"PBDEMS2\x00fake-demo")
+            path = Path(handle.name)
+        try:
+            players = self.parser.list_players(path)
+        finally:
+            path.unlink(missing_ok=True)
+
+        self.assertEqual(players, ["Enemy", "Learner", "Teammate"])
+
     def test_unknown_player_returns_available_names(self):
         with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:
             handle.write(b"PBDEMS2\x00fake-demo")
@@ -290,6 +301,44 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(body["status"], "completed")
         self.assertEqual(body["match"]["player_name"], "Learner")
         self.assertIn("opening_duels", body["analysis"]["tools_used"])
+
+    def test_demo_job_discovers_players_then_accepts_selection(self):
+        runtime = CS2CoachRuntime.create()
+        jobs = DemoJobManager(
+            runtime,
+            parser=CS2DemoMatchParser(FakeDemoParser),
+            executor=InlineExecutor(),
+            player_selection_timeout_seconds=60,
+        )
+        client = TestClient(create_app(runtime, jobs))
+
+        response = client.post(
+            "/api/demo-jobs",
+            files={
+                "file": (
+                    "match.dem",
+                    io.BytesIO(b"PBDEMS2\x00fake-demo"),
+                    "application/octet-stream",
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 202)
+        discovered = response.json()
+        self.assertEqual(discovered["status"], "awaiting_player")
+        self.assertEqual(discovered["available_players"], ["Enemy", "Learner", "Teammate"])
+        self.assertIsNone(discovered["player_name"])
+
+        selected = client.post(
+            f"/api/demo-jobs/{discovered['job_id']}/player",
+            json={"player_name": "Learner", "question": "分析首轮交火"},
+        )
+
+        self.assertEqual(selected.status_code, 202)
+        completed = selected.json()
+        self.assertEqual(completed["status"], "completed")
+        self.assertEqual(completed["match"]["player_name"], "Learner")
+        self.assertIn("opening_duels", completed["analysis"]["tools_used"])
 
 
 if __name__ == "__main__":
