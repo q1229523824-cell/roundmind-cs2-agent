@@ -27,7 +27,7 @@
         </p>
         <div class="hero-meta">
           <div><strong>5</strong><span>分析工具</span></div>
-          <div><strong>100%</strong><span>回合可追溯</span></div>
+          <div><strong>500MB</strong><span>Demo 上限</span></div>
           <div><strong>0</strong><span>默认外部调用</span></div>
         </div>
       </section>
@@ -41,12 +41,16 @@
           <select id="match-select" aria-describedby="match-help"></select>
           <p id="match-help" class="hint">已经为你准备了一场 Mirage 示例比赛。</p>
 
-          <label for="json-file" class="upload-box">
+          <label for="player-name">Demo 中的游戏昵称</label>
+          <input id="player-name" type="text" placeholder="例如：Learner" autocomplete="off" />
+
+          <label for="match-file" class="upload-box">
             <span class="upload-symbol">＋</span>
-            <strong>上传比赛 JSON</strong>
-            <small>最大 2 MB · 数据只在当前服务中处理</small>
+            <strong>上传 CS2 Demo 或 JSON</strong>
+            <small>.dem 最大 500 MB · JSON 最大 2 MB · 解析后删除临时文件</small>
           </label>
-          <input id="json-file" type="file" accept="application/json,.json" />
+          <input id="match-file" type="file" accept=".dem,.json,application/json" />
+          <div id="upload-progress" class="upload-progress hidden" aria-hidden="true"><i></i></div>
           <p id="upload-message" class="inline-message" role="status"></p>
 
           <label for="question">你最想弄清什么？</label>

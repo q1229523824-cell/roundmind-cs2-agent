@@ -205,7 +205,16 @@ class CS2CoachApiTests(unittest.TestCase):
         self.client = TestClient(create_app(CS2CoachRuntime.create()))
 
     def test_homepage_and_health(self):
-        self.assertEqual(self.client.get("/").status_code, 200)
+        homepage = self.client.get("/")
+        self.assertEqual(homepage.status_code, 200)
+        self.assertIn("上传 CS2 Demo 或 JSON", homepage.text)
+        self.assertIn(".dem 最大 500 MB", homepage.text)
+        self.assertIn('accept=".dem,.json,application/json"', homepage.text)
+
+        script = self.client.get("/static/app.js")
+        self.assertEqual(script.status_code, 200)
+        self.assertIn('request.open("POST", "/api/demo-jobs")', script.text)
+        self.assertIn("500 * 1024 * 1024", script.text)
         self.assertEqual(self.client.get("/health").json()["status"], "ok")
 
     def test_analyze_endpoint(self):

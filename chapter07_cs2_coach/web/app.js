@@ -2,7 +2,10 @@ const elements = {
   matchSelect: document.querySelector("#match-select"),
   question: document.querySelector("#question"),
   analyzeButton: document.querySelector("#analyze-button"),
-  jsonFile: document.querySelector("#json-file"),
+  playerName: document.querySelector("#player-name"),
+  matchFile: document.querySelector("#match-file"),
+  uploadProgress: document.querySelector("#upload-progress"),
+  uploadProgressBar: document.querySelector("#upload-progress i"),
   uploadMessage: document.querySelector("#upload-message"),
   empty: document.querySelector("#empty-state"),
   loading: document.querySelector("#loading-state"),
@@ -16,6 +19,8 @@ const elements = {
   evidenceList: document.querySelector("#evidence-list"),
   traceList: document.querySelector("#trace-list"),
 };
+
+const MAX_DEMO_BYTES = 500 * 1024 * 1024;
 
 const loadingMessages = [
   "正在读取基础统计…",
@@ -49,6 +54,57 @@ function fillMatches(matches, selectedId) {
     option.selected = match.match_id === selectedId;
     elements.matchSelect.append(option);
   });
+}
+
+function setUploadProgress(progress) {
+  const visible = progress !== null;
+  elements.uploadProgress.classList.toggle("hidden", !visible);
+  elements.uploadProgress.setAttribute("aria-hidden", String(!visible));
+  elements.uploadProgressBar.style.width = `${progress ?? 0}%`;
+}
+
+function uploadDemo(file) {
+  const playerName = elements.playerName.value.trim();
+  if (!playerName) throw new Error("请先填写你在 Demo 中的游戏昵称。");
+  if (file.size > MAX_DEMO_BYTES) throw new Error("Demo 文件不能超过 500 MB。");
+
+  const form = new FormData();
+  form.append("file", file);
+  form.append("player_name", playerName);
+  form.append("question", elements.question.value.trim() || "请综合复盘这场比赛");
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", "/api/demo-jobs");
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) setUploadProgress(Math.round(event.loaded / event.total * 30));
+    };
+    request.onload = () => {
+      try {
+        const body = JSON.parse(request.responseText);
+        if (request.status >= 200 && request.status < 300) resolve(body);
+        else reject(new Error(body.detail || "Demo 上传失败"));
+      } catch {
+        reject(new Error("服务器返回了无法识别的响应"));
+      }
+    };
+    request.onerror = () => reject(new Error("无法连接 Demo 解析服务"));
+    request.send(form);
+  });
+}
+
+async function waitForDemo(job) {
+  let current = job;
+  for (let attempt = 0; attempt < 180 && current.status !== "completed"; attempt += 1) {
+    if (current.status === "failed") throw new Error(current.error || "Demo 解析失败");
+    setUploadProgress(Math.max(35, current.progress));
+    elements.uploadMessage.textContent = "服务器正在解析回合与玩家事件…";
+    await new Promise((resolve) => window.setTimeout(resolve, 1000));
+    current = await api(`/api/demo-jobs/${current.job_id}`);
+  }
+  if (current.status !== "completed" || !current.match) {
+    throw new Error("Demo 解析超时，请稍后重试。");
+  }
+  return current;
 }
 
 function renderMetrics(summary) {
@@ -121,21 +177,35 @@ document.querySelectorAll("[data-question]").forEach((button) => {
   });
 });
 
-elements.jsonFile.addEventListener("change", async () => {
-  const file = elements.jsonFile.files[0];
+elements.matchFile.addEventListener("change", async () => {
+  const file = elements.matchFile.files[0];
   if (!file) return;
-  const form = new FormData();
-  form.append("file", file);
-  elements.uploadMessage.textContent = "正在校验比赛文件…";
   try {
-    const match = await api("/api/upload-json", { method: "POST", body: form });
+    let match;
+    if (file.name.toLowerCase().endsWith(".dem")) {
+      setUploadProgress(0);
+      elements.uploadMessage.textContent = "正在上传 Demo…";
+      const completed = await waitForDemo(await uploadDemo(file));
+      match = completed.match;
+      setUploadProgress(100);
+      elements.uploadMessage.textContent = "Demo 解析完成，临时文件已删除。";
+      if (completed.analysis) renderResult(completed.analysis);
+    } else if (file.name.toLowerCase().endsWith(".json")) {
+      const form = new FormData();
+      form.append("file", file);
+      elements.uploadMessage.textContent = "正在校验 JSON…";
+      match = await api("/api/upload-json", { method: "POST", body: form });
+      elements.uploadMessage.textContent = `已加载 ${match.map_name}，可以开始复盘。`;
+    } else {
+      throw new Error("只接受 .dem 或 .json 文件。");
+    }
     const matches = await api("/api/matches");
     fillMatches(matches, match.match_id);
-    elements.uploadMessage.textContent = `已加载 ${match.map_name}，可以开始复盘。`;
   } catch (error) {
+    setUploadProgress(null);
     elements.uploadMessage.textContent = error.message;
   } finally {
-    elements.jsonFile.value = "";
+    elements.matchFile.value = "";
   }
 });
 

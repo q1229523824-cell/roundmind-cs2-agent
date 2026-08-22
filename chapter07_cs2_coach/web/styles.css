@@ -164,7 +164,7 @@ label:not(.upload-box) {
   margin: 24px 0 9px;
 }
 
-select, textarea {
+select, textarea, input[type="text"] {
   width: 100%;
   color: var(--ink);
   background: #0f110e;
@@ -175,11 +175,11 @@ select, textarea {
   outline: none;
 }
 
-select:focus, textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+select:focus, textarea:focus, input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 textarea { resize: vertical; min-height: 116px; line-height: 1.6; }
 .hint, .upload-box small { color: var(--muted); font-size: 11px; line-height: 1.6; }
 
-#json-file { position: absolute; width: 1px; height: 1px; opacity: 0; }
+#match-file { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .upload-box {
   margin-top: 18px;
   min-height: 112px;
@@ -194,6 +194,8 @@ textarea { resize: vertical; min-height: 116px; line-height: 1.6; }
 .upload-box:hover, .upload-box:focus-within { border-color: var(--accent); background: var(--accent-soft); }
 .upload-symbol { color: var(--accent); font-size: 25px; line-height: 1; }
 .upload-box strong { font-size: 13px; margin: 7px 0 3px; }
+.upload-progress { height: 4px; margin-top: 12px; overflow: hidden; background: #292c26; }
+.upload-progress i { display: block; width: 0; height: 100%; background: var(--accent); transition: width .25s ease; }
 .inline-message { min-height: 17px; color: var(--accent); font-size: 11px; }
 
 .quick-prompts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
