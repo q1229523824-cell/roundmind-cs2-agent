@@ -21,16 +21,22 @@ class FakeDemoParser:
     def __init__(self, _path: str):
         self.events = {
             "round_end": [
-                {"tick": 1000, "total_rounds_played": 0, "winner": "T"},
-                {"tick": 2000, "total_rounds_played": 1, "winner": "CT"},
+                {"tick": 1000, "round": 1, "total_rounds_played": 1, "winner": "T"},
+                {"tick": 2000, "round": 2, "total_rounds_played": 2, "winner": "CT"},
+            ],
+            "round_freeze_end": [
+                {"tick": 100, "total_rounds_played": 0},
+                {"tick": 1100, "total_rounds_played": 1},
             ],
             "player_death": [
                 {
                     "tick": 500,
                     "total_rounds_played": 0,
                     "attacker_name": "Learner",
+                    "attacker_steamid": "1",
                     "attacker_team_name": "TERRORIST",
                     "user_name": "Enemy",
+                    "user_steamid": "2",
                     "user_team_name": "CT",
                     "assister_name": "",
                 },
@@ -38,8 +44,10 @@ class FakeDemoParser:
                     "tick": 1500,
                     "total_rounds_played": 1,
                     "attacker_name": "Enemy",
+                    "attacker_steamid": "2",
                     "attacker_team_name": "TERRORIST",
                     "user_name": "Learner",
+                    "user_steamid": "1",
                     "user_team_name": "CT",
                     "assister_name": "",
                 },
@@ -47,8 +55,10 @@ class FakeDemoParser:
                     "tick": 1560,
                     "total_rounds_played": 1,
                     "attacker_name": "Teammate",
+                    "attacker_steamid": "3",
                     "attacker_team_name": "CT",
                     "user_name": "Enemy",
+                    "user_steamid": "2",
                     "user_team_name": "TERRORIST",
                     "assister_name": "",
                 },
@@ -58,7 +68,11 @@ class FakeDemoParser:
                     "tick": 490,
                     "total_rounds_played": 0,
                     "attacker_name": "Learner",
+                    "attacker_steamid": "1",
+                    "attacker_team_name": "TERRORIST",
                     "user_name": "Enemy",
+                    "user_steamid": "2",
+                    "user_team_name": "CT",
                     "dmg_health": 86,
                     "weapon": "ak47",
                 },
@@ -66,7 +80,11 @@ class FakeDemoParser:
                     "tick": 1480,
                     "total_rounds_played": 1,
                     "attacker_name": "Learner",
+                    "attacker_steamid": "1",
+                    "attacker_team_name": "CT",
                     "user_name": "Enemy",
+                    "user_steamid": "2",
+                    "user_team_name": "TERRORIST",
                     "dmg_health": 24,
                     "weapon": "hegrenade",
                 },
@@ -76,7 +94,12 @@ class FakeDemoParser:
                     "tick": 480,
                     "total_rounds_played": 0,
                     "attacker_name": "Learner",
+                    "attacker_steamid": "1",
+                    "attacker_team_name": "TERRORIST",
                     "user_name": "Enemy",
+                    "user_steamid": "2",
+                    "user_team_name": "CT",
+                    "blind_duration": 2.5,
                 }
             ],
         }
@@ -85,7 +108,11 @@ class FakeDemoParser:
         return {"demo_file_stamp": "PBDEMS2\x00", "map_name": "de_mirage"}
 
     def parse_player_info(self):
-        return [{"name": "Learner"}, {"name": "Enemy"}, {"name": "Teammate"}]
+        return [
+            {"name": "Learner", "steamid": "1"},
+            {"name": "Enemy", "steamid": "2"},
+            {"name": "Teammate", "steamid": "3"},
+        ]
 
     def parse_event(self, event_name, *, player=None, other=None):
         return self.events[event_name]
@@ -93,16 +120,18 @@ class FakeDemoParser:
     def parse_ticks(self, wanted_props, *, ticks):
         return [
             {
-                "tick": 1000,
+                "tick": 100,
+                "steamid": "1",
                 "name": "Learner",
                 "team_name": "TERRORIST",
-                "round_start_equip_value": 4200,
+                "current_equip_value": 4200,
             },
             {
-                "tick": 2000,
+                "tick": 1100,
+                "steamid": "1",
                 "name": "Learner",
                 "team_name": "CT",
-                "round_start_equip_value": 5100,
+                "current_equip_value": 5100,
             },
         ]
 
@@ -115,6 +144,11 @@ class InlineExecutor:
         except Exception as error:  # pragma: no cover - Future 行为兼容
             future.set_exception(error)
         return future
+
+
+class DuplicateNameDemoParser(FakeDemoParser):
+    def parse_player_info(self):
+        return super().parse_player_info() + [{"name": "Learner", "steamid": "4"}]
 
 
 class CS2CoachToolTests(unittest.TestCase):
@@ -148,9 +182,12 @@ class CS2DemoParserTests(unittest.TestCase):
             path.unlink(missing_ok=True)
 
         self.assertEqual(match.map_name, "de_mirage")
+        self.assertEqual(match.player_steamid, "1")
         self.assertEqual(match.team_score, 2)
         self.assertEqual(match.rounds[0].opening_duel, "won")
         self.assertEqual(match.rounds[0].damage, 86)
+        self.assertEqual(match.rounds[0].equipment_value, 4200)
+        self.assertEqual(match.rounds[0].enemies_flashed, 1)
         self.assertEqual(match.rounds[1].utility_damage, 24)
         self.assertTrue(match.rounds[1].was_traded)
 
@@ -164,6 +201,21 @@ class CS2DemoParserTests(unittest.TestCase):
             path.unlink(missing_ok=True)
 
         self.assertEqual(players, ["Enemy", "Learner", "Teammate"])
+
+    def test_steamid_disambiguates_duplicate_player_names(self):
+        parser = CS2DemoMatchParser(DuplicateNameDemoParser)
+        with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:
+            handle.write(b"PBDEMS2\x00fake-demo")
+            path = Path(handle.name)
+        try:
+            with self.assertRaisesRegex(DemoParseError, "找不到唯一玩家"):
+                parser.parse(path, "Learner")
+            match = parser.parse(path, "Learner", "1")
+        finally:
+            path.unlink(missing_ok=True)
+
+        self.assertEqual(match.player_steamid, "1")
+        self.assertEqual(match.rounds[0].kills, 1)
 
     def test_unknown_player_returns_available_names(self):
         with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:
@@ -327,17 +379,23 @@ class CS2CoachApiTests(unittest.TestCase):
         discovered = response.json()
         self.assertEqual(discovered["status"], "awaiting_player")
         self.assertEqual(discovered["available_players"], ["Enemy", "Learner", "Teammate"])
+        self.assertEqual(discovered["player_options"][1], {"name": "Learner", "steamid": "1"})
         self.assertIsNone(discovered["player_name"])
 
         selected = client.post(
             f"/api/demo-jobs/{discovered['job_id']}/player",
-            json={"player_name": "Learner", "question": "分析首轮交火"},
+            json={
+                "player_name": "Learner",
+                "player_steamid": "1",
+                "question": "分析首轮交火",
+            },
         )
 
         self.assertEqual(selected.status_code, 202)
         completed = selected.json()
         self.assertEqual(completed["status"], "completed")
         self.assertEqual(completed["match"]["player_name"], "Learner")
+        self.assertEqual(completed["match"]["player_steamid"], "1")
         self.assertIn("opening_duels", completed["analysis"]["tools_used"])
 
 

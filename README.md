@@ -36,7 +36,7 @@ render.yaml           Render Blueprint
 - `.dem` 最大 500 MB，按 1 MB 分块接收；
 - 校验文件扩展名和 `PBDEMS2` Source 2 文件头；
 - 最多同时保留两个等待或解析中的任务；
-- 自动提取本场玩家名单，由用户下拉选择复盘对象；
+- 自动提取本场玩家名单与 SteamID，由用户下拉选择复盘对象；
 - 提取击杀、助攻、死亡、伤害、首轮交火、补枪、道具和装备价值；
 - 无论解析成功或失败都会删除临时文件；
 - 默认使用确定性 Planner，不产生模型调用费用；
@@ -46,14 +46,16 @@ render.yaml           Render Blueprint
 
 ```powershell
 python -m pip install -r chapter07_cs2_coach/requirements.txt
-python -m chapter07_cs2_coach.main
+python -m chapter07_cs2_coach.local_server
 ```
 
 访问：
 
-- 网页：`http://127.0.0.1:8000`
-- Swagger：`http://127.0.0.1:8000/docs`
-- 健康检查：`http://127.0.0.1:8000/health`
+- 网页：`http://127.0.0.1:8765`
+- Swagger：`http://127.0.0.1:8765/docs`
+- 健康检查：`http://127.0.0.1:8765/health`
+
+本地模式只监听 `127.0.0.1`。大文件经过本机回环地址传给 Python，不会上传到 Render。
 
 运行后端测试：
 
@@ -100,7 +102,7 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 
 ## 当前边界
 
-- 玩家昵称由 Demo 自动提取，同名玩家后续可升级为 SteamID 选择；
+- 玩家昵称与 SteamID 由 Demo 自动提取，同名玩家也能稳定区分；
 - 部分新版本 CS2 Demo 可能暂时不兼容，系统会返回受控错误而不是生成空报告；
 - 任务和比赛保存在进程内，服务重启后会消失；
 - 免费云实例适合学习与作品展示，不适合大规模生产流量。

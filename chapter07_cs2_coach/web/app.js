@@ -7,6 +7,7 @@ const elements = {
   uploadProgress: document.querySelector("#upload-progress"),
   uploadProgressBar: document.querySelector("#upload-progress i"),
   uploadMessage: document.querySelector("#upload-message"),
+  uploadHint: document.querySelector("#upload-hint"),
   empty: document.querySelector("#empty-state"),
   loading: document.querySelector("#loading-state"),
   loadingCopy: document.querySelector("#loading-copy"),
@@ -22,6 +23,10 @@ const elements = {
 
 const MAX_DEMO_BYTES = 500 * 1024 * 1024;
 let pendingDemoJobId = null;
+
+if (["127.0.0.1", "localhost"].includes(window.location.hostname)) {
+  elements.uploadHint.textContent = ".dem 最大 500 MB · 仅在本机处理，不会上传到 Render";
+}
 
 const loadingMessages = [
   "正在读取基础统计…",
@@ -61,8 +66,9 @@ function fillPlayers(players) {
   elements.playerSelect.innerHTML = '<option value="">请选择一名玩家</option>';
   players.forEach((player) => {
     const option = document.createElement("option");
-    option.value = player;
-    option.textContent = player;
+    option.value = player.steamid;
+    option.dataset.playerName = player.name;
+    option.textContent = `${player.name} · Steam …${player.steamid.slice(-6)}`;
     elements.playerSelect.append(option);
   });
   elements.playerSelect.disabled = players.length === 0;
@@ -209,7 +215,10 @@ elements.matchFile.addEventListener("change", async () => {
       elements.uploadMessage.textContent = "正在上传 Demo…";
       const discovered = await waitForDemo(await uploadDemo(file), true);
       pendingDemoJobId = discovered.job_id;
-      fillPlayers(discovered.available_players || []);
+      const options = discovered.player_options?.length
+        ? discovered.player_options
+        : (discovered.available_players || []).map((name) => ({ name, steamid: name }));
+      fillPlayers(options);
       setUploadProgress(discovered.progress);
       elements.uploadMessage.textContent = `已找到 ${discovered.available_players.length} 名玩家，请选择复盘对象。`;
     } else if (file.name.toLowerCase().endsWith(".json")) {
@@ -231,8 +240,9 @@ elements.matchFile.addEventListener("change", async () => {
 });
 
 elements.playerSelect.addEventListener("change", async () => {
-  const playerName = elements.playerSelect.value;
-  if (!pendingDemoJobId || !playerName) return;
+  const playerSteamid = elements.playerSelect.value;
+  const playerName = elements.playerSelect.selectedOptions[0]?.dataset.playerName;
+  if (!pendingDemoJobId || !playerName || !playerSteamid) return;
   elements.playerSelect.disabled = true;
   try {
     elements.uploadMessage.textContent = `正在解析 ${playerName} 的回合事件…`;
@@ -241,6 +251,7 @@ elements.playerSelect.addEventListener("change", async () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         player_name: playerName,
+        player_steamid: playerSteamid,
         question: elements.question.value.trim() || "请综合复盘这场比赛",
       }),
     });

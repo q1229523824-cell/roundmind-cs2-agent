@@ -107,6 +107,7 @@ def create_app(
     async def create_demo_job(
         file: UploadFile = File(...),
         player_name: str | None = Form(default=None, max_length=80),
+        player_steamid: str | None = Form(default=None, max_length=32),
         question: str = Form(DEFAULT_QUESTION, min_length=1, max_length=1000),
     ) -> DemoJobResponse:
         filename = Path(file.filename or "").name
@@ -140,6 +141,7 @@ def create_app(
                     path=temporary_path,
                     filename=filename,
                     player_name=player_name.strip() if player_name else None,
+                    player_steamid=player_steamid.strip() if player_steamid else None,
                     question=question.strip(),
                 )
             except DemoQueueFullError as error:
@@ -176,6 +178,7 @@ def create_app(
             return app.state.demo_jobs.select_player(
                 job_id,
                 player_name=selection.player_name.strip(),
+                player_steamid=selection.player_steamid,
                 question=selection.question.strip(),
             )
         except KeyError as error:

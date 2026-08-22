@@ -24,6 +24,7 @@ type Round = {
 type Match = {
   match_id: string;
   player_name: string;
+  player_steamid?: string | null;
   map_name: string;
   team_score: number;
   opponent_score: number;
@@ -52,7 +53,9 @@ type DemoJob = {
   status: "queued" | "discovering" | "awaiting_player" | "parsing" | "completed" | "failed";
   progress: number;
   player_name: string | null;
+  player_steamid: string | null;
   available_players: string[];
+  player_options: Array<{ name: string; steamid: string }>;
   match: Match | null;
   analysis: AgentAnalysis | null;
   error: string | null;
@@ -244,7 +247,7 @@ export default function Home() {
   const [query, setQuery] = useState(question);
   const [error, setError] = useState("");
   const [pendingDemoJobId, setPendingDemoJobId] = useState("");
-  const [availablePlayers, setAvailablePlayers] = useState<string[]>([]);
+  const [availablePlayers, setAvailablePlayers] = useState<Array<{ name: string; steamid: string }>>([]);
   const [selectedPlayer, setSelectedPlayer] = useState("");
   const [apiBase, setApiBase] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -330,7 +333,9 @@ export default function Home() {
       });
       const current = await pollDemoJob(job, true);
       setPendingDemoJobId(current.job_id);
-      setAvailablePlayers(current.available_players);
+      setAvailablePlayers(current.player_options?.length
+        ? current.player_options
+        : current.available_players.map((name) => ({ name, steamid: name })));
       setUploadProgress(current.progress);
       setUploadStatus(`已找到 ${current.available_players.length} 名玩家，请选择复盘对象`);
     } catch (reason) {
@@ -358,17 +363,19 @@ export default function Home() {
     return current;
   }
 
-  async function selectDemoPlayer(playerName: string) {
-    setSelectedPlayer(playerName);
-    if (!playerName || !pendingDemoJobId) return;
+  async function selectDemoPlayer(playerSteamid: string) {
+    setSelectedPlayer(playerSteamid);
+    const player = availablePlayers.find((item) => item.steamid === playerSteamid);
+    if (!player || !pendingDemoJobId) return;
     setError("");
-    setUploadStatus(`正在解析 ${playerName} 的回合事件…`);
+    setUploadStatus(`正在解析 ${player.name} 的回合事件…`);
     try {
       const response = await fetch(`${apiBase}/api/demo-jobs/${pendingDemoJobId}/player`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          player_name: playerName,
+          player_name: player.name,
+          player_steamid: player.steamid,
           question: question.trim() || "请综合复盘这场比赛",
         }),
       });
@@ -424,7 +431,7 @@ export default function Home() {
         <label htmlFor="player-select">选择要复盘的玩家</label>
         <select id="player-select" value={selectedPlayer} disabled={!availablePlayers.length || !pendingDemoJobId} onChange={(event) => selectDemoPlayer(event.target.value)}>
           <option value="">上传 Demo 后自动读取玩家名单</option>
-          {availablePlayers.map((player) => <option value={player} key={player}>{player}</option>)}
+          {availablePlayers.map((player) => <option value={player.steamid} key={player.steamid}>{player.name} · Steam …{player.steamid.slice(-6)}</option>)}
         </select>
         <label className="upload" htmlFor="match-file">＋<strong>上传 CS2 Demo 或 JSON</strong><small>.dem 最大 {MAX_DEMO_MB} MB · 解析后自动删除</small><input id="match-file" type="file" accept=".dem,.json,application/json" onChange={(event) => upload(event.target.files?.[0])}/></label>
         {uploadProgress !== null && <div className="progress" aria-label={`处理进度 ${uploadProgress}%`}><i style={{ width: `${uploadProgress}%` }}/></div>}

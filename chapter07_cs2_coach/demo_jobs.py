@@ -9,7 +9,12 @@ from threading import RLock, Timer
 from uuid import uuid4
 
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
-from chapter07_cs2_coach.models import AnalysisResponse, DemoJobResponse, MatchRecord
+from chapter07_cs2_coach.models import (
+    AnalysisResponse,
+    DemoJobResponse,
+    DemoPlayerOption,
+    MatchRecord,
+)
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 
 
@@ -26,6 +31,7 @@ class _DemoJob:
     job_id: str
     filename: str
     player_name: str | None
+    player_steamid: str | None
     question: str
     path: Path
     status: str = "queued"
@@ -33,6 +39,7 @@ class _DemoJob:
     match: MatchRecord | None = None
     analysis: AnalysisResponse | None = None
     available_players: list[str] = field(default_factory=list)
+    player_options: list[DemoPlayerOption] = field(default_factory=list)
     error: str | None = None
     selection_timer: Timer | None = field(default=None, repr=False)
 
@@ -65,6 +72,7 @@ class DemoJobManager:
         path: Path,
         filename: str,
         player_name: str | None = None,
+        player_steamid: str | None = None,
         question: str,
     ) -> DemoJobResponse:
         job = _DemoJob(
@@ -72,6 +80,7 @@ class DemoJobManager:
             path=path,
             filename=filename,
             player_name=player_name,
+            player_steamid=player_steamid,
             question=question,
         )
         with self._lock:
@@ -103,6 +112,7 @@ class DemoJobManager:
         job_id: str,
         *,
         player_name: str,
+        player_steamid: str | None,
         question: str,
     ) -> DemoJobResponse:
         with self._lock:
@@ -113,15 +123,20 @@ class DemoJobManager:
                 raise DemoJobStateError("这个 Demo 任务当前不等待玩家选择。")
             selected = next(
                 (
-                    name
-                    for name in job.available_players
-                    if name.casefold() == player_name.casefold()
+                    option
+                    for option in job.player_options
+                    if (player_steamid and option.steamid == player_steamid)
+                    or (
+                        not player_steamid
+                        and option.name.casefold() == player_name.casefold()
+                    )
                 ),
                 None,
             )
             if selected is None:
                 raise DemoJobStateError("请选择 Demo 玩家列表中的昵称。")
-            job.player_name = selected
+            job.player_name = selected.name
+            job.player_steamid = selected.steamid
             job.question = question
             job.status = "queued"
             job.progress = 50
@@ -142,7 +157,9 @@ class DemoJobManager:
                 progress=job.progress,
                 filename=job.filename,
                 player_name=job.player_name,
+                player_steamid=job.player_steamid,
                 available_players=list(job.available_players),
+                player_options=list(job.player_options),
                 match=job.match,
                 analysis=job.analysis,
                 error=job.error,
@@ -154,7 +171,7 @@ class DemoJobManager:
             job.status = "discovering"
             job.progress = 25
         try:
-            players = self._parser.list_players(job.path)
+            options = self._parser.list_player_options(job.path)
             timer = Timer(
                 self._player_selection_timeout_seconds,
                 self._expire_selection,
@@ -162,7 +179,8 @@ class DemoJobManager:
             )
             timer.daemon = True
             with self._lock:
-                job.available_players = players
+                job.available_players = [item.name for item in options]
+                job.player_options = options
                 job.status = "awaiting_player"
                 job.progress = 45
                 job.selection_timer = timer
@@ -180,10 +198,11 @@ class DemoJobManager:
             job.status = "parsing"
             job.progress = 55
             player_name = job.player_name
+            player_steamid = job.player_steamid
         try:
             if not player_name:
                 raise DemoParseError("尚未选择要复盘的玩家。")
-            match = self._parser.parse(job.path, player_name)
+            match = self._parser.parse(job.path, player_name, player_steamid)
             with self._lock:
                 job.progress = 80
             self._runtime.add_match(match)

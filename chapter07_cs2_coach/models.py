@@ -44,6 +44,7 @@ class MatchRecord(BaseModel):
 
     match_id: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
     player_name: str = Field(min_length=1, max_length=80)
+    player_steamid: str | None = Field(default=None, min_length=1, max_length=32)
     map_name: str = Field(min_length=1, max_length=80)
     team_name: str = Field(min_length=1, max_length=80)
     opponent_name: str = Field(min_length=1, max_length=80)
@@ -103,7 +104,9 @@ class DemoJobResponse(BaseModel):
     progress: int = Field(ge=0, le=100)
     filename: str
     player_name: str | None = None
+    player_steamid: str | None = None
     available_players: list[str] = Field(default_factory=list, max_length=20)
+    player_options: list["DemoPlayerOption"] = Field(default_factory=list, max_length=20)
     match: MatchRecord | None = None
     analysis: AnalysisResponse | None = None
     error: str | None = None
@@ -115,8 +118,16 @@ class DemoPlayerSelection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     player_name: str = Field(min_length=1, max_length=80)
+    player_steamid: str | None = Field(default=None, min_length=1, max_length=32)
     question: str = Field(
         default="请综合分析这场比赛，找出最值得优先改进的问题。",
         min_length=1,
         max_length=1000,
     )
+
+
+class DemoPlayerOption(BaseModel):
+    """Demo 中可选择的稳定玩家身份。"""
+
+    name: str = Field(min_length=1, max_length=80)
+    steamid: str = Field(min_length=1, max_length=32)
