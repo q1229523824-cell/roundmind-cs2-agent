@@ -1,0 +1,12 @@
+.git
+.env
+.idea
+.vscode
+**/__pycache__
+**/*.pyc
+**/*.db*
+frontend/node_modules
+frontend/.next
+frontend/.vinext
+frontend/dist
+frontend/.wrangler

@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: roundmind-cs2-api
+    runtime: docker
+    dockerfilePath: ./chapter07_cs2_coach/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: ROUNDMIND_CORS_ORIGINS
+        value: https://roundmind-cs2-coach.kclespark.chatgpt.site

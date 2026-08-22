@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="RoundMind：把 CS2 比赛数据转化为有证据的训练建议。" />
+    <title>RoundMind · CS2 智能复盘教练</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="noise" aria-hidden="true"></div>
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="RoundMind 首页">
+        <span class="brand-mark">R</span>
+        <span>ROUNDMIND</span>
+      </a>
+      <div class="status"><span></span> OFFLINE-FIRST AGENT</div>
+    </header>
+
+    <main id="top">
+      <section class="hero">
+        <div class="eyebrow">EVIDENCE-BASED MATCH REVIEW</div>
+        <h1>别只看战绩。<br /><em>找出真正丢分的习惯。</em></h1>
+        <p>
+          RoundMind 会选择合适的分析工具，追踪关键回合，并把冷冰冰的数据
+          转化成下一场就能执行的训练重点。
+        </p>
+        <div class="hero-meta">
+          <div><strong>5</strong><span>分析工具</span></div>
+          <div><strong>100%</strong><span>回合可追溯</span></div>
+          <div><strong>0</strong><span>默认外部调用</span></div>
+        </div>
+      </section>
+
+      <section class="workspace" aria-labelledby="workspace-title">
+        <aside class="control-panel">
+          <div class="section-label">01 / MATCH INPUT</div>
+          <h2 id="workspace-title">开始一次复盘</h2>
+
+          <label for="match-select">比赛数据</label>
+          <select id="match-select" aria-describedby="match-help"></select>
+          <p id="match-help" class="hint">已经为你准备了一场 Mirage 示例比赛。</p>
+
+          <label for="json-file" class="upload-box">
+            <span class="upload-symbol">＋</span>
+            <strong>上传比赛 JSON</strong>
+            <small>最大 2 MB · 数据只在当前服务中处理</small>
+          </label>
+          <input id="json-file" type="file" accept="application/json,.json" />
+          <p id="upload-message" class="inline-message" role="status"></p>
+
+          <label for="question">你最想弄清什么？</label>
+          <textarea id="question" rows="5">请综合分析这场比赛，找出最值得优先改进的问题。</textarea>
+          <div class="quick-prompts" aria-label="快捷问题">
+            <button type="button" data-question="为什么我杀了很多人还是输了？">击杀没转化？</button>
+            <button type="button" data-question="分析我的首杀、首死和补枪问题。">首轮交火</button>
+            <button type="button" data-question="我的道具和经济决策有什么问题？">道具与经济</button>
+          </div>
+          <button id="analyze-button" class="primary-button" type="button">
+            <span>运行复盘 Agent</span><span aria-hidden="true">↗</span>
+          </button>
+        </aside>
+
+        <section class="report-panel" aria-live="polite">
+          <div id="empty-state" class="empty-state">
+            <div class="radar" aria-hidden="true"><i></i></div>
+            <p>Agent 正在等待比赛数据</p>
+          </div>
+
+          <div id="loading-state" class="loading-state hidden">
+            <div class="scanner"></div>
+            <p id="loading-copy">正在读取基础统计…</p>
+          </div>
+
+          <article id="report" class="hidden">
+            <header class="report-header">
+              <div>
+                <div class="section-label">02 / COACH REPORT</div>
+                <h2 id="report-title">比赛复盘</h2>
+              </div>
+              <span id="confidence" class="confidence">置信度 HIGH</span>
+            </header>
+
+            <div id="metrics" class="metrics"></div>
+            <div class="report-grid">
+              <section>
+                <h3>教练结论</h3>
+                <div id="answer" class="answer"></div>
+              </section>
+              <aside>
+                <h3>证据卡片</h3>
+                <div id="evidence-list" class="evidence-list"></div>
+              </aside>
+            </div>
+
+            <details class="agent-trace">
+              <summary>查看 Agent 执行轨迹</summary>
+              <ol id="trace-list"></ol>
+            </details>
+          </article>
+
+          <div id="error-state" class="error-state hidden" role="alert"></div>
+        </section>
+      </section>
+    </main>
+
+    <footer>
+      <span>ROUNDMIND / MVP 01</span>
+      <span>程序计算事实 · Agent 选择工具 · 审核节点约束结论</span>
+    </footer>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
