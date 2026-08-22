@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+const MAX_DEMO_MB = 500;
+const MAX_DEMO_BYTES = MAX_DEMO_MB * 1024 * 1024;
+
 type Round = {
   number: number;
   won: boolean;
@@ -296,8 +299,8 @@ export default function Home() {
       setError("请先填写你在 Demo 中的游戏昵称。");
       return;
     }
-    if (file.size > 200 * 1024 * 1024) {
-      setError("Demo 文件不能超过 200 MB。");
+    if (file.size > MAX_DEMO_BYTES) {
+      setError(`Demo 文件不能超过 ${MAX_DEMO_MB} MB。`);
       return;
     }
     setUploadProgress(0);
@@ -373,7 +376,7 @@ export default function Home() {
       <p className="eyebrow">EVIDENCE-BASED MATCH REVIEW</p>
       <h1>别只看战绩。<br/><em>找出真正丢分的习惯。</em></h1>
       <p className="intro">RoundMind 会选择合适的分析工具，追踪关键回合，并把冷冰冰的数据转化成下一场就能执行的训练重点。</p>
-      <div className="heroStats"><div><strong>5</strong><span>分析工具</span></div><div><strong>200MB</strong><span>Demo 上限</span></div><div><strong>0</strong><span>默认模型费用</span></div></div>
+      <div className="heroStats"><div><strong>5</strong><span>分析工具</span></div><div><strong>{MAX_DEMO_MB}MB</strong><span>Demo 上限</span></div><div><strong>0</strong><span>默认模型费用</span></div></div>
     </section>
     <section className="workspace">
       <aside className="controls">
@@ -381,7 +384,7 @@ export default function Home() {
         <p className="fieldLabel">比赛数据</p><div className="selectLike">{match.player_name} · {match.map_name} · {match.team_score}:{match.opponent_score}</div>
         <label htmlFor="player-name">Demo 中的游戏昵称</label>
         <input id="player-name" className="textInput" value={playerName} placeholder="例如：Learner" onChange={(event) => setPlayerName(event.target.value)}/>
-        <label className="upload" htmlFor="match-file">＋<strong>上传 CS2 Demo 或 JSON</strong><small>.dem 最大 200 MB · 解析后自动删除</small><input id="match-file" type="file" accept=".dem,.json,application/json" onChange={(event) => upload(event.target.files?.[0])}/></label>
+        <label className="upload" htmlFor="match-file">＋<strong>上传 CS2 Demo 或 JSON</strong><small>.dem 最大 {MAX_DEMO_MB} MB · 解析后自动删除</small><input id="match-file" type="file" accept=".dem,.json,application/json" onChange={(event) => upload(event.target.files?.[0])}/></label>
         {uploadProgress !== null && <div className="progress" aria-label={`处理进度 ${uploadProgress}%`}><i style={{ width: `${uploadProgress}%` }}/></div>}
         {uploadStatus && <p className="uploadStatus">{uploadStatus}</p>}
         {error && <p className="error">{error}</p>}

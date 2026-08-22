@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from chapter07_cs2_coach.api import create_app
+from chapter07_cs2_coach.api import MAX_DEMO_BYTES, MAX_DEMO_MB, create_app
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
 from chapter07_cs2_coach.models import MatchRecord
@@ -197,6 +197,10 @@ class CS2CoachWorkflowTests(unittest.TestCase):
 
 
 class CS2CoachApiTests(unittest.TestCase):
+    def test_demo_upload_limit_is_500_mb(self):
+        self.assertEqual(MAX_DEMO_MB, 500)
+        self.assertEqual(MAX_DEMO_BYTES, 500 * 1024 * 1024)
+
     def setUp(self):
         self.client = TestClient(create_app(CS2CoachRuntime.create()))
 

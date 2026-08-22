@@ -25,7 +25,8 @@ from chapter07_cs2_coach.runtime import CS2CoachRuntime
 
 WEB_DIRECTORY = Path(__file__).resolve().parent / "web"
 MAX_JSON_BYTES = 2 * 1024 * 1024
-MAX_DEMO_BYTES = 200 * 1024 * 1024
+MAX_DEMO_MB = 500
+MAX_DEMO_BYTES = MAX_DEMO_MB * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 DEFAULT_QUESTION = "请综合分析这场比赛，找出最值得优先改进的问题。"
 
@@ -120,7 +121,7 @@ def create_app(
                     if size > MAX_DEMO_BYTES:
                         raise HTTPException(
                             status_code=413,
-                            detail="Demo 文件不能超过 200 MB。",
+                            detail=f"Demo 文件不能超过 {MAX_DEMO_MB} MB。",
                         )
                     output.write(chunk)
             if first_bytes != b"PBDEMS2\x00":

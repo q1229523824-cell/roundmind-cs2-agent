@@ -33,7 +33,7 @@ render.yaml           Render Blueprint
 
 ## 后端能力
 
-- `.dem` 最大 200 MB，按 1 MB 分块接收；
+- `.dem` 最大 500 MB，按 1 MB 分块接收；
 - 校验文件扩展名和 `PBDEMS2` Source 2 文件头；
 - 最多同时保留两个等待或解析中的任务；
 - 根据游戏昵称定位玩家；

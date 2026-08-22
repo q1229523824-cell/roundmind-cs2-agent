@@ -29,11 +29,12 @@ test("server-renders the RoundMind demo upload experience", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>RoundMind · CS2 智能复盘教练<\/title>/i);
-  assert.match(html, /上传 CS2 Demo 或 JSON/);
-  assert.match(html, /\.dem 最大 200 MB/);
-  assert.match(html, /accept="\.dem,\.json,application\/json"/);
-  assert.match(html, /Demo 中的游戏昵称/);
+  const visibleHtml = html.replaceAll("<!-- -->", "");
+  assert.match(visibleHtml, /<title>RoundMind · CS2 智能复盘教练<\/title>/i);
+  assert.match(visibleHtml, /上传 CS2 Demo 或 JSON/);
+  assert.match(visibleHtml, /\.dem 最大 500 MB/);
+  assert.match(visibleHtml, /accept="\.dem,\.json,application\/json"/);
+  assert.match(visibleHtml, /Demo 中的游戏昵称/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
@@ -43,10 +44,10 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
     readFile(new URL("../app/api/config/route.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /file\.size > 200 \* 1024 \* 1024/);
+  assert.match(page, /const MAX_DEMO_MB = 500/);
+  assert.match(page, /file\.size > MAX_DEMO_BYTES/);
   assert.match(page, /\/api\/demo-jobs/);
   assert.match(page, /request\.upload\.onprogress/);
   assert.match(page, /accept="\.dem,\.json,application\/json"/);
   assert.match(configRoute, /process\.env\.ROUNDMIND_API_URL/);
 });
-
