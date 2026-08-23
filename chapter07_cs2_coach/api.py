@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,6 +19,7 @@ from chapter07_cs2_coach.models import (
     DemoJobResponse,
     DemoPlayerSelection,
     MatchRecord,
+    PlayerProfileResponse,
 )
 from chapter07_cs2_coach.demo_jobs import (
     DemoJobManager,
@@ -74,7 +75,11 @@ def create_app(
 
     @app.get("/health", tags=["system"])
     def health() -> dict[str, str]:
-        return {"status": "ok", "service": "roundmind-cs2-coach"}
+        return {
+            "status": "ok",
+            "service": "roundmind-cs2-coach",
+            "version": os.getenv("RENDER_GIT_COMMIT", "local")[:12],
+        }
 
     @app.get("/api/matches", response_model=list[MatchRecord], tags=["matches"])
     def list_matches() -> list[MatchRecord]:
@@ -190,6 +195,25 @@ def create_app(
     def analyze(request: AnalysisRequest) -> AnalysisResponse:
         try:
             return runtime.analyze(match_id=request.match_id, question=request.question)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.get(
+        "/api/player-profiles/{player_steamid}",
+        response_model=PlayerProfileResponse,
+        tags=["profiles"],
+    )
+    def player_profile(
+        player_steamid: str,
+        map_name: str | None = Query(default=None, max_length=80),
+    ) -> PlayerProfileResponse:
+        if not player_steamid.strip() or len(player_steamid) > 32:
+            raise HTTPException(status_code=422, detail="SteamID 格式无效。")
+        try:
+            return runtime.player_profile(
+                player_steamid=player_steamid.strip(),
+                map_name=map_name.strip() if map_name else None,
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

@@ -31,6 +31,7 @@ from chapter07_cs2_coach.knowledge_base import (
     retrieve_tactical_knowledge,
 )
 from chapter07_cs2_coach.models import ContactEpisode, EngagementRecord, MatchRecord
+from chapter07_cs2_coach.player_profile import build_player_profile
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
@@ -615,6 +616,42 @@ class CS2CoachToolTests(unittest.TestCase):
         self.assertIn("队友空间距离近", findings)
         self.assertIn("95% 区间", "\n".join(item.metric for item in evidence))
 
+        matches = [
+            SAMPLE_MATCH.model_copy(
+                update={
+                    "match_id": f"profile-{index}",
+                    "player_steamid": "42",
+                    "map_name": "de_dust2",
+                    "contact_episodes": contacts,
+                }
+            )
+            for index in range(3)
+        ]
+        profile = build_player_profile(
+            matches,
+            player_steamid="42",
+            map_name="de_dust2",
+        )
+
+        self.assertEqual(profile.match_count, 3)
+        self.assertEqual(profile.contact_count, 27)
+        recurring = {item.key: item for item in profile.findings}
+        self.assertEqual(recurring["first-damage-conversion"].status, "recurring")
+        self.assertEqual(
+            recurring["support-readiness-conversion"].confidence, "medium"
+        )
+        single_profile = build_player_profile(
+            matches[:1],
+            player_steamid="42",
+            map_name="de_dust2",
+        )
+        self.assertTrue(
+            all(
+                item.title.startswith("本场")
+                for item in single_profile.findings
+            )
+        )
+
     def test_match_rejects_score_inconsistent_with_rounds(self):
         payload = SAMPLE_MATCH.model_dump()
         payload["team_score"] = 11
@@ -918,7 +955,32 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(script.status_code, 200)
         self.assertIn('request.open("POST", "/api/demo-jobs")', script.text)
         self.assertIn("500 * 1024 * 1024", script.text)
-        self.assertEqual(self.client.get("/health").json()["status"], "ok")
+        health = self.client.get("/health").json()
+        self.assertEqual(health["status"], "ok")
+        self.assertEqual(health["version"], "local")
+
+    def test_player_profile_endpoint_uses_steamid_and_map_filter(self):
+        match = SAMPLE_MATCH.model_copy(
+            update={
+                "match_id": "profile-api-test",
+                "player_steamid": "42",
+                "map_name": "de_dust2",
+            }
+        )
+        self.client.app.state.runtime.add_match(match)
+
+        response = self.client.get(
+            "/api/player-profiles/42",
+            params={"map_name": "de_dust2"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["match_count"], 1)
+        self.assertEqual(response.json()["confidence"], "low")
+        self.assertEqual(response.json()["findings"], [])
+        self.assertEqual(
+            self.client.get("/api/player-profiles/missing").status_code, 404
+        )
 
     def test_analyze_endpoint(self):
         response = self.client.post(

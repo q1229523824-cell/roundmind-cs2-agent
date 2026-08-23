@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from threading import RLock
 
-from chapter07_cs2_coach.models import AnalysisResponse, MatchRecord
+from chapter07_cs2_coach.models import (
+    AnalysisResponse,
+    MatchRecord,
+    PlayerProfileResponse,
+)
+from chapter07_cs2_coach.player_profile import build_player_profile
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.workflow import (
     CS2CoachWorkflow,
@@ -69,4 +74,13 @@ class CS2CoachRuntime:
             knowledge_references=result.get("knowledge_references", []),
             decision_cards=result.get("decision_cards", []),
             confidence=result.get("confidence", "low"),
+        )
+
+    def player_profile(
+        self, *, player_steamid: str, map_name: str | None = None
+    ) -> PlayerProfileResponse:
+        return build_player_profile(
+            self.repository.list(),
+            player_steamid=player_steamid,
+            map_name=map_name,
         )

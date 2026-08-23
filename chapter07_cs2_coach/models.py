@@ -225,6 +225,42 @@ class AnalysisResponse(BaseModel):
     confidence: Literal["high", "medium", "low"]
 
 
+class ProfileRateSummary(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    total: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    kills: int = Field(ge=0)
+    deaths: int = Field(ge=0)
+    disengaged: int = Field(ge=0)
+    kill_rate: float | None = Field(default=None, ge=0, le=1)
+    smoothed_kill_rate: float | None = Field(default=None, ge=0, le=1)
+    interval_low: float | None = Field(default=None, ge=0, le=1)
+    interval_high: float | None = Field(default=None, ge=0, le=1)
+
+
+class ProfileFinding(BaseModel):
+    key: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=240)
+    metric: str = Field(min_length=1, max_length=500)
+    supporting_matches: int = Field(ge=0)
+    eligible_matches: int = Field(ge=0)
+    consistency: float | None = Field(default=None, ge=0, le=1)
+    status: Literal["single_match_signal", "emerging", "recurring"]
+    confidence: Literal["high", "medium", "low"]
+
+
+class PlayerProfileResponse(BaseModel):
+    player_name: str = Field(min_length=1, max_length=80)
+    player_steamid: str = Field(min_length=1, max_length=32)
+    map_name: str = Field(min_length=1, max_length=80)
+    match_count: int = Field(ge=1)
+    round_count: int = Field(ge=1)
+    contact_count: int = Field(ge=0)
+    rate_summaries: list[ProfileRateSummary] = Field(max_length=8)
+    findings: list[ProfileFinding] = Field(max_length=10)
+    confidence: Literal["high", "medium", "low"]
+
+
 class DemoJobResponse(BaseModel):
     """异步 Demo 解析任务的公开状态。"""
 
