@@ -32,6 +32,7 @@ from chapter07_cs2_coach.knowledge_base import (
 )
 from chapter07_cs2_coach.models import ContactEpisode, EngagementRecord, MatchRecord
 from chapter07_cs2_coach.player_profile import build_player_profile
+from chapter07_cs2_coach.personal_baseline import build_personal_contact_contrasts
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
@@ -615,6 +616,10 @@ class CS2CoachToolTests(unittest.TestCase):
         self.assertIn("先取得有效伤害", findings)
         self.assertIn("队友空间距离近", findings)
         self.assertIn("95% 区间", "\n".join(item.metric for item in evidence))
+        contrasts = build_personal_contact_contrasts(match)
+        self.assertGreaterEqual(len(contrasts), 1)
+        self.assertEqual(contrasts[0].location, "LongA")
+        self.assertGreaterEqual(contrasts[0].similarity_score, 65)
 
         matches = [
             SAMPLE_MATCH.model_copy(
@@ -997,6 +1002,7 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(body["evidence"]), 1)
         self.assertIn("decision_cards", body)
         self.assertIn("knowledge_references", body)
+        self.assertIn("personal_contact_contrasts", body)
 
     def test_upload_json_rejects_wrong_extension(self):
         response = self.client.post(

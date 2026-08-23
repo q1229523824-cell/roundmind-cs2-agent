@@ -10,6 +10,7 @@ from chapter07_cs2_coach.models import (
     PlayerProfileResponse,
 )
 from chapter07_cs2_coach.player_profile import build_player_profile
+from chapter07_cs2_coach.personal_baseline import build_personal_contact_contrasts
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.workflow import (
     CS2CoachWorkflow,
@@ -73,6 +74,7 @@ class CS2CoachRuntime:
             execution_trace=result.get("execution_trace", []),
             knowledge_references=result.get("knowledge_references", []),
             decision_cards=result.get("decision_cards", []),
+            personal_contact_contrasts=build_personal_contact_contrasts(match),
             confidence=result.get("confidence", "low"),
         )
 

@@ -9,6 +9,7 @@ from chapter07_cs2_coach.contact_analysis import (
     find_contact_hotspots,
 )
 from chapter07_cs2_coach.models import Evidence, MatchRecord
+from chapter07_cs2_coach.personal_baseline import build_personal_contact_contrasts
 
 
 DUST2_CALLOUTS = {
@@ -375,6 +376,22 @@ def analyze_engagement_decisions(match: MatchRecord) -> list[Evidence]:
                     "优先回看这些回合的第一接触位置、预瞄落点与撤退路线；"
                     "在同一点位重复失败前，先改变道具顺序或接触时机。"
                 ),
+            )
+        )
+    contrasts = build_personal_contact_contrasts(match, limit=3)
+    if contrasts:
+        best = contrasts[0]
+        evidence.append(
+            Evidence(
+                finding="系统在玩家自己的成功交火中找到了与失败样本高度相似的个人基线。",
+                round_numbers=sorted({best.death_round, best.success_round}),
+                metric=(
+                    f"R{best.death_round} {best.side} 方 {_location_label(match, best.location)} "
+                    f"失败，对照 R{best.success_round} 成功，相似度 "
+                    f"{best.similarity_score}/100；" + "；".join(best.differences)
+                ),
+                severity="medium",
+                suggestion=best.lesson,
             )
         )
     return evidence

@@ -213,6 +213,21 @@ class DecisionCard(BaseModel):
     confidence: Literal["high", "medium", "low"]
 
 
+class PersonalContactContrast(BaseModel):
+    """玩家失败交火与自身相似成功交火的可追溯对照。"""
+
+    death_round: int = Field(ge=1, le=100)
+    death_tick: int = Field(ge=0)
+    success_round: int = Field(ge=1, le=100)
+    success_tick: int = Field(ge=0)
+    side: Literal["T", "CT"]
+    location: str = Field(min_length=1, max_length=80)
+    similarity_score: int = Field(ge=0, le=100)
+    differences: list[str] = Field(min_length=1, max_length=8)
+    lesson: str = Field(min_length=1, max_length=400)
+    confidence: Literal["high", "medium", "low"]
+
+
 class AnalysisResponse(BaseModel):
     match_id: str
     answer: str
@@ -222,6 +237,9 @@ class AnalysisResponse(BaseModel):
     execution_trace: list[str]
     knowledge_references: list[KnowledgeReference] = Field(default_factory=list)
     decision_cards: list[DecisionCard] = Field(default_factory=list)
+    personal_contact_contrasts: list[PersonalContactContrast] = Field(
+        default_factory=list
+    )
     confidence: Literal["high", "medium", "low"]
 
 
