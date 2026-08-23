@@ -74,6 +74,18 @@ class EngagementRecord(BaseModel):
     seconds_since_bomb_plant: float | None = Field(default=None, ge=0, le=300)
     active_smokes_nearby: int | None = Field(default=None, ge=0, le=20)
     smoke_between_player_and_nearest_teammate: bool | None = None
+    killer_distance: int | None = Field(default=None, ge=0, le=100000)
+    killer_location: str | None = Field(default=None, min_length=1, max_length=80)
+    killing_weapon: str | None = Field(default=None, min_length=1, max_length=80)
+    seconds_from_killer_first_damage_to_death: float | None = Field(
+        default=None, ge=0, le=10
+    )
+    death_through_smoke: bool | None = None
+    nearest_teammate_view_angle_error: int | None = Field(
+        default=None, ge=0, le=180
+    )
+    nearest_teammate_facing_killer: bool | None = None
+    support_ready_teammates_proxy: int | None = Field(default=None, ge=0, le=4)
 
 
 class MatchRecord(BaseModel):
@@ -159,7 +171,7 @@ class DecisionCard(BaseModel):
     risk_level: Literal["high", "medium", "low"]
     verdict: Literal["high_risk", "review", "reasonable"]
     situation: str = Field(min_length=1, max_length=240)
-    factors: list[str] = Field(min_length=1, max_length=10)
+    factors: list[str] = Field(min_length=1, max_length=14)
     better_action: str = Field(min_length=1, max_length=400)
     knowledge_ids: list[str] = Field(default_factory=list, max_length=5)
     confidence: Literal["high", "medium", "low"]

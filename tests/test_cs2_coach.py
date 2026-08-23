@@ -164,6 +164,7 @@ class FakeDemoParser:
                             "armor_value": 90,
                             "last_place_name": "TestArea",
                             "active_weapon_name": "AK-47",
+                            "yaw": 0,
                         },
                         {
                             "tick": tick,
@@ -174,6 +175,7 @@ class FakeDemoParser:
                             "X": 500,
                             "Y": 0,
                             "Z": 0,
+                            "yaw": 0,
                         },
                         {
                             "tick": tick,
@@ -184,6 +186,8 @@ class FakeDemoParser:
                             "X": 800,
                             "Y": 0,
                             "Z": 0,
+                            "yaw": 180,
+                            "last_place_name": "EnemyArea",
                         },
                     ]
                 )
@@ -242,6 +246,20 @@ class ContextAwareDemoParser(FakeDemoParser):
                         "z": 0,
                     }
                 ],
+            }
+        )
+        self.events["player_hurt"].append(
+            {
+                "tick": 1490,
+                "total_rounds_played": 1,
+                "attacker_name": "Enemy",
+                "attacker_steamid": "2",
+                "attacker_team_name": "TERRORIST",
+                "user_name": "Learner",
+                "user_steamid": "1",
+                "user_team_name": "CT",
+                "dmg_health": 30,
+                "weapon": "ak47",
             }
         )
 
@@ -650,6 +668,13 @@ class CS2DemoParserTests(unittest.TestCase):
         self.assertEqual(engagement.seconds_since_bomb_plant, 1.5)
         self.assertEqual(engagement.active_smokes_nearby, 1)
         self.assertTrue(engagement.smoke_between_player_and_nearest_teammate)
+        self.assertEqual(engagement.killer_distance, 400)
+        self.assertEqual(engagement.killer_location, "EnemyArea")
+        self.assertIsNone(engagement.killing_weapon)
+        self.assertEqual(engagement.seconds_from_killer_first_damage_to_death, 0.2)
+        self.assertEqual(engagement.nearest_teammate_view_angle_error, 0)
+        self.assertTrue(engagement.nearest_teammate_facing_killer)
+        self.assertEqual(engagement.support_ready_teammates_proxy, 0)
 
     def test_smoke_segment_proxy_respects_distance_and_height(self):
         blocks = CS2DemoMatchParser._smoke_blocks_segment
@@ -657,6 +682,13 @@ class CS2DemoParserTests(unittest.TestCase):
         self.assertTrue(blocks((0, 0, 0), (500, 0, 0), (250, 100, 0)))
         self.assertFalse(blocks((0, 0, 0), (500, 0, 0), (250, 250, 0)))
         self.assertFalse(blocks((0, 0, 0), (500, 0, 0), (250, 0, 400)))
+
+    def test_view_angle_proxy_handles_wraparound(self):
+        row = {"X": 0, "Y": 0, "Z": 0, "yaw": -179}
+
+        error = CS2DemoMatchParser._view_angle_error(row, (-100, 1, 0))
+
+        self.assertLessEqual(error, 2)
 
     def test_player_names_can_be_discovered_before_analysis(self):
         with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:

@@ -47,5 +47,19 @@
     "description": "即使发生推进，只要队友近、闪光生效并完成补枪，就不应按结果倒推为坏决策",
     "engagement": {"round_number": 1, "tick": 1000, "classification": "isolated_advance", "location": "LongA", "side": "T", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "AK-47", "alive_teammates": 3, "alive_enemies": 4, "nearest_teammate_distance": 700, "nearby_support": true, "moved_distance_5s": 650, "effective_team_flashes_5s": 2, "was_traded": true},
     "expected_level": "low", "min_score": 25, "max_score": 39
+  },
+  {
+    "id": "nearby-but-facing-away",
+    "description": "队友距离近但没有朝向击杀者，不能仅凭距离视为可补枪",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "supported_contact", "location": "LongA", "side": "T", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "AK-47", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 350, "nearby_support": true, "moved_distance_5s": 350, "effective_team_flashes_5s": 0, "was_traded": false, "smoke_between_player_and_nearest_teammate": false, "nearest_teammate_view_angle_error": 120, "nearest_teammate_facing_killer": false, "support_ready_teammates_proxy": 0},
+    "expected_level": "medium", "min_score": 40, "max_score": 48,
+    "expected_confidence": "medium"
+  },
+  {
+    "id": "nearby-facing-and-clear",
+    "description": "队友距离近、面向击杀者且无烟雾阻断，并完成补枪",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "supported_contact", "location": "BombsiteB", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 300, "nearby_support": true, "moved_distance_5s": 100, "effective_team_flashes_5s": 1, "was_traded": true, "smoke_between_player_and_nearest_teammate": false, "nearest_teammate_view_angle_error": 15, "nearest_teammate_facing_killer": true, "support_ready_teammates_proxy": 1},
+    "expected_level": "low", "min_score": 0, "max_score": 10,
+    "expected_confidence": "high"
   }
 ]

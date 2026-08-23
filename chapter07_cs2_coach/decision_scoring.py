@@ -64,6 +64,21 @@ def score_engagement(match: MatchRecord, item: EngagementRecord) -> DecisionCard
             "未落在最近队友连线代理上"
         )
 
+    if item.nearby_support and item.support_ready_teammates_proxy == 0:
+        score += 8
+        confidence = "medium"
+        angle = (
+            f"，最近队友朝向误差约 {item.nearest_teammate_view_angle_error}°"
+            if item.nearest_teammate_view_angle_error is not None
+            else ""
+        )
+        factors.append(f"附近没有识别到已面向击杀者且烟雾线路畅通的队友{angle}")
+    elif item.support_ready_teammates_proxy:
+        score -= 4
+        factors.append(
+            f"附近有 {item.support_ready_teammates_proxy} 名队友满足距离、朝向和烟雾代理条件"
+        )
+
     if item.moved_distance_5s >= 600:
         score += 10
         factors.append(f"死亡前五秒移动 {item.moved_distance_5s} 单位，持续进入新空间")
@@ -103,6 +118,20 @@ def score_engagement(match: MatchRecord, item: EngagementRecord) -> DecisionCard
 
     if item.round_elapsed_seconds is not None:
         factors.append(f"快照距冻结时间结束约 {item.round_elapsed_seconds:g} 秒")
+
+    if item.killer_distance is not None:
+        factors.append(
+            f"击杀者位于约 {item.killer_distance} 单位外"
+            + (f"（{item.killer_location}）" if item.killer_location else "")
+        )
+    if item.seconds_from_killer_first_damage_to_death is not None:
+        factors.append(
+            "从击杀者首次造成伤害到死亡约 "
+            f"{item.seconds_from_killer_first_damage_to_death:g} 秒"
+        )
+    if item.death_through_smoke:
+        confidence = "medium"
+        factors.append("死亡事件被 Demo 标记为穿烟击杀，常规视线判断需谨慎")
 
     score = max(0, min(round(score), 100))
     risk_level = "high" if score >= 70 else "medium" if score >= 40 else "low"

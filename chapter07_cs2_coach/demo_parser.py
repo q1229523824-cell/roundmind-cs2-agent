@@ -43,6 +43,8 @@ SMOKE_FALLBACK_LIFETIME_TICKS = 20 * TICKS_PER_SECOND
 SMOKE_OBSTRUCTION_RADIUS = 180
 SMOKE_VERTICAL_TOLERANCE = 250
 NEARBY_SMOKE_DISTANCE = 1200
+DAMAGE_EXCHANGE_WINDOW_TICKS = 10 * TICKS_PER_SECOND
+SUPPORT_VIEW_ANGLE_THRESHOLD = 45
 
 
 def _default_parser_factory(path: str) -> DemoParserProtocol:
@@ -102,6 +104,19 @@ def _number(row: Mapping[str, Any], *keys: str, default: float = 0.0) -> float:
     return default
 
 
+def _optional_number(row: Mapping[str, Any], *keys: str) -> float | None:
+    for key in keys:
+        try:
+            value = row.get(key)
+            if value is not None:
+                number = float(value)
+                if math.isfinite(number):
+                    return number
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _optional_event(
     parser: DemoParserProtocol,
     event_name: str,
@@ -122,6 +137,15 @@ def _round_index(row: Mapping[str, Any]) -> int:
 
 def _same_player(value: Any, player_name: str) -> bool:
     return str(value or "").casefold() == player_name.casefold()
+
+
+def _row_matches_player(
+    row: Mapping[str, Any], player_name: str, player_steamid: str | None
+) -> bool:
+    steamid = _text(row, "steamid")
+    if player_steamid and steamid:
+        return steamid == player_steamid
+    return _same_player(_text(row, "name", "player_name"), player_name)
 
 
 def _same_identity(
@@ -397,6 +421,7 @@ class CS2DemoMatchParser:
             parser=parser,
             deaths=deaths,
             blinds=blinds,
+            hurts=hurts,
             freeze_ends=freeze_ends,
             player=selected,
             rounds=rounds,
@@ -542,6 +567,7 @@ class CS2DemoMatchParser:
         parser: DemoParserProtocol,
         deaths: list[dict[str, Any]],
         blinds: list[dict[str, Any]],
+        hurts: list[dict[str, Any]],
         freeze_ends: list[dict[str, Any]],
         player: DemoPlayerOption,
         rounds: list[dict[str, Any]],
@@ -587,6 +613,7 @@ class CS2DemoMatchParser:
                         "is_alive",
                         "last_place_name",
                         "active_weapon_name",
+                        "yaw",
                     ],
                     ticks=wanted_ticks,
                 )
@@ -707,6 +734,37 @@ class CS2DemoMatchParser:
                 if active_smokes is not None and nearest_teammate is not None
                 else None
             )
+            killer_name = _text(death, "attacker_name")
+            killer_steamid = _text(death, "attacker_steamid") or None
+            killer_row = next(
+                (
+                    row
+                    for row in snapshot_rows
+                    if _row_matches_player(row, killer_name, killer_steamid)
+                    and not _row_matches_player(row, player.name, player.steamid)
+                ),
+                None,
+            )
+            killer_position = cls._position(killer_row) if killer_row is not None else None
+            killer_distance = (
+                round(math.dist(position, killer_position))
+                if killer_position is not None
+                else None
+            )
+            nearest_angle_error = (
+                cls._view_angle_error(
+                    nearest_teammate,
+                    killer_position,
+                )
+                if nearest_teammate is not None and killer_position is not None
+                else None
+            )
+            support_ready = cls._support_ready_teammates(
+                player_position=position,
+                teammates=teammates,
+                killer_position=killer_position,
+                active_smokes=active_smokes,
+            )
             result.append(
                 EngagementRecord(
                     round_number=round_index + 1,
@@ -740,9 +798,111 @@ class CS2DemoMatchParser:
                     seconds_since_bomb_plant=seconds_since_plant,
                     active_smokes_nearby=active_smokes_nearby,
                     smoke_between_player_and_nearest_teammate=smoke_between,
+                    killer_distance=killer_distance,
+                    killer_location=(
+                        _text(killer_row, "last_place_name") or None
+                        if killer_row is not None
+                        else None
+                    ),
+                    killing_weapon=_text(death, "weapon") or None,
+                    seconds_from_killer_first_damage_to_death=(
+                        cls._seconds_from_killer_first_damage(
+                            death=death,
+                            hurts=hurts,
+                            player=player,
+                        )
+                    ),
+                    death_through_smoke=(
+                        bool(death.get("thrusmoke"))
+                        if "thrusmoke" in death
+                        else None
+                    ),
+                    nearest_teammate_view_angle_error=nearest_angle_error,
+                    nearest_teammate_facing_killer=(
+                        nearest_angle_error <= SUPPORT_VIEW_ANGLE_THRESHOLD
+                        if nearest_angle_error is not None
+                        else None
+                    ),
+                    support_ready_teammates_proxy=support_ready,
                 )
             )
         return result
+
+    @staticmethod
+    def _view_angle_error(
+        player_row: Mapping[str, Any],
+        target_position: tuple[float, float, float],
+    ) -> int | None:
+        yaw = _optional_number(player_row, "yaw")
+        if yaw is None:
+            return None
+        position = CS2DemoMatchParser._position(player_row)
+        bearing = math.degrees(
+            math.atan2(target_position[1] - position[1], target_position[0] - position[0])
+        )
+        return round(abs((yaw - bearing + 180) % 360 - 180))
+
+    @classmethod
+    def _support_ready_teammates(
+        cls,
+        *,
+        player_position: tuple[float, float, float],
+        teammates: list[dict[str, Any]],
+        killer_position: tuple[float, float, float] | None,
+        active_smokes: list[dict[str, Any]] | None,
+    ) -> int | None:
+        """距离、朝向和烟雾三项代理；不宣称具备墙体级真实视线。"""
+
+        if killer_position is None or active_smokes is None or not teammates:
+            return None
+        if any(_optional_number(teammate, "yaw") is None for teammate in teammates):
+            return None
+        ready = 0
+        for teammate in teammates:
+            teammate_position = cls._position(teammate)
+            if math.dist(player_position, teammate_position) > NEARBY_SUPPORT_DISTANCE:
+                continue
+            angle_error = cls._view_angle_error(teammate, killer_position)
+            if angle_error is None or angle_error > SUPPORT_VIEW_ANGLE_THRESHOLD:
+                continue
+            if any(
+                cls._smoke_blocks_segment(
+                    teammate_position,
+                    killer_position,
+                    cls._position(smoke),
+                )
+                for smoke in active_smokes
+            ):
+                continue
+            ready += 1
+        return ready
+
+    @staticmethod
+    def _seconds_from_killer_first_damage(
+        *,
+        death: Mapping[str, Any],
+        hurts: Iterable[Mapping[str, Any]],
+        player: DemoPlayerOption,
+    ) -> float | None:
+        death_tick = _integer(death, "tick")
+        killer_name = _text(death, "attacker_name")
+        killer_steamid = _text(death, "attacker_steamid") or None
+        if (not killer_name and not killer_steamid) or _same_identity(
+            death, "attacker", player.name, player.steamid
+        ):
+            return None
+        relevant_ticks = [
+            _integer(event, "tick")
+            for event in hurts
+            if death_tick - DAMAGE_EXCHANGE_WINDOW_TICKS
+            <= _integer(event, "tick")
+            <= death_tick
+            and _same_identity(event, "user", player.name, player.steamid)
+            and _same_identity(event, "attacker", killer_name, killer_steamid)
+        ]
+        if not relevant_ticks:
+            return None
+        return round((death_tick - min(relevant_ticks)) / TICKS_PER_SECOND, 1)
 
     @staticmethod
     def _bomb_context(
