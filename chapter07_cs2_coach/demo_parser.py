@@ -9,7 +9,12 @@ from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from chapter07_cs2_coach.models import DemoPlayerOption, EngagementRecord, MatchRecord
+from chapter07_cs2_coach.models import (
+    ContactEpisode,
+    DemoPlayerOption,
+    EngagementRecord,
+    MatchRecord,
+)
 
 
 class DemoParseError(ValueError):
@@ -45,6 +50,9 @@ SMOKE_VERTICAL_TOLERANCE = 250
 NEARBY_SMOKE_DISTANCE = 1200
 DAMAGE_EXCHANGE_WINDOW_TICKS = 10 * TICKS_PER_SECOND
 SUPPORT_VIEW_ANGLE_THRESHOLD = 45
+CONTACT_GAP_TICKS = 5 * TICKS_PER_SECOND
+CONTACT_MAX_DURATION_TICKS = 15 * TICKS_PER_SECOND
+CONTACT_OUTCOME_GRACE_TICKS = 2 * TICKS_PER_SECOND
 
 
 def _default_parser_factory(path: str) -> DemoParserProtocol:
@@ -437,6 +445,18 @@ class CS2DemoMatchParser:
                 smoke_detonations_available and smoke_expirations_available
             ),
         )
+        contact_episodes = self._build_contact_episodes(
+            parser=parser,
+            hurts=hurts,
+            deaths=deaths,
+            freeze_ends=freeze_ends,
+            player=selected,
+            smoke_detonations=smoke_detonations,
+            smoke_expirations=smoke_expirations,
+            smoke_events_available=(
+                smoke_detonations_available and smoke_expirations_available
+            ),
+        )
         with path.open("rb") as demo_file:
             digest = hashlib.sha256(demo_file.read(1024 * 1024)).hexdigest()[:12]
         safe_player = re.sub(r"[^a-zA-Z0-9_-]+", "-", selected.steamid).strip("-")[:24]
@@ -452,6 +472,7 @@ class CS2DemoMatchParser:
                 "opponent_score": len(rounds) - team_score,
                 "rounds": rounds,
                 "engagements": engagements,
+                "contact_episodes": contact_episodes,
             }
         )
 
@@ -903,6 +924,254 @@ class CS2DemoMatchParser:
         if not relevant_ticks:
             return None
         return round((death_tick - min(relevant_ticks)) / TICKS_PER_SECOND, 1)
+
+    @classmethod
+    def _build_contact_episodes(
+        cls,
+        *,
+        parser: DemoParserProtocol,
+        hurts: list[dict[str, Any]],
+        deaths: list[dict[str, Any]],
+        freeze_ends: list[dict[str, Any]],
+        player: DemoPlayerOption,
+        smoke_detonations: list[dict[str, Any]],
+        smoke_expirations: list[dict[str, Any]],
+        smoke_events_available: bool,
+    ) -> list[ContactEpisode]:
+        """按对手和五秒间隔聚合枪械伤害，避免只分析死亡结果。"""
+
+        contact_events: list[dict[str, Any]] = []
+        for event in hurts:
+            if cls._is_utility_damage(event) or not _opposing_teams(event):
+                continue
+            player_attacks = _same_identity(
+                event, "attacker", player.name, player.steamid
+            )
+            player_receives = _same_identity(event, "user", player.name, player.steamid)
+            if player_attacks == player_receives:
+                continue
+            opponent_role = "user" if player_attacks else "attacker"
+            opponent_name = _text(event, f"{opponent_role}_name")
+            opponent_steamid = _text(event, f"{opponent_role}_steamid") or None
+            if not opponent_name and not opponent_steamid:
+                continue
+            contact_events.append(
+                {
+                    "tick": _integer(event, "tick"),
+                    "round_index": _round_index(event),
+                    "opponent_name": opponent_name,
+                    "opponent_steamid": opponent_steamid,
+                    "outgoing": player_attacks,
+                    "damage": max(0, _integer(event, "dmg_health", "damage")),
+                    "weapon": _text(event, "weapon") or "unknown",
+                }
+            )
+        if not contact_events:
+            return []
+
+        groups: dict[tuple[int, str], list[list[dict[str, Any]]]] = {}
+        for event in sorted(contact_events, key=lambda item: item["tick"]):
+            opponent_key = str(
+                event["opponent_steamid"] or event["opponent_name"].casefold()
+            )
+            key = (event["round_index"], opponent_key)
+            episodes = groups.setdefault(key, [])
+            if (
+                not episodes
+                or event["tick"] - episodes[-1][-1]["tick"] > CONTACT_GAP_TICKS
+                or event["tick"] - episodes[-1][0]["tick"]
+                > CONTACT_MAX_DURATION_TICKS
+            ):
+                episodes.append([])
+            episodes[-1].append(event)
+
+        flat_groups = [episode for episodes in groups.values() for episode in episodes]
+        freeze_by_round = {
+            _round_index(item): _integer(item, "tick") for item in freeze_ends
+        }
+        snapshot_ticks = sorted(
+            {
+                max(
+                    freeze_by_round.get(episode[0]["round_index"], 0),
+                    episode[0]["tick"] - 1,
+                )
+                for episode in flat_groups
+            }
+        )
+        try:
+            tick_rows = _records(
+                parser.parse_ticks(
+                    [
+                        "X",
+                        "Y",
+                        "Z",
+                        "health",
+                        "armor_value",
+                        "team_name",
+                        "is_alive",
+                        "last_place_name",
+                        "yaw",
+                    ],
+                    ticks=snapshot_ticks,
+                )
+            )
+        except Exception:
+            return []
+        rows_by_tick: dict[int, list[dict[str, Any]]] = {}
+        for row in tick_rows:
+            rows_by_tick.setdefault(_integer(row, "tick"), []).append(row)
+
+        result: list[ContactEpisode] = []
+        for episode in sorted(flat_groups, key=lambda items: items[0]["tick"]):
+            first = episode[0]
+            round_index = first["round_index"]
+            start_tick = first["tick"]
+            snapshot_tick = max(
+                freeze_by_round.get(round_index, 0),
+                start_tick - 1,
+            )
+            rows = rows_by_tick.get(snapshot_tick, [])
+            player_row = next(
+                (
+                    row
+                    for row in rows
+                    if _row_matches_player(row, player.name, player.steamid)
+                ),
+                None,
+            )
+            opponent_row = next(
+                (
+                    row
+                    for row in rows
+                    if _row_matches_player(
+                        row, first["opponent_name"], first["opponent_steamid"]
+                    )
+                ),
+                None,
+            )
+            if player_row is None:
+                continue
+            player_team = _text(player_row, "team_name", "team_num")
+            teammates = [
+                row
+                for row in rows
+                if bool(row.get("is_alive"))
+                and not _row_matches_player(row, player.name, player.steamid)
+                and _text(row, "team_name", "team_num") == player_team
+            ]
+            player_position = cls._position(player_row)
+            opponent_position = (
+                cls._position(opponent_row) if opponent_row is not None else None
+            )
+            teammate_distances = [
+                round(math.dist(player_position, cls._position(teammate)))
+                for teammate in teammates
+            ]
+            active_smokes = (
+                cls._active_smokes(
+                    round_index=round_index,
+                    snapshot_tick=snapshot_tick,
+                    detonations=smoke_detonations,
+                    expirations=smoke_expirations,
+                )
+                if smoke_events_available
+                else None
+            )
+            relevant_deaths = [
+                death
+                for death in deaths
+                if _round_index(death) == round_index
+                and start_tick <= _integer(death, "tick")
+                <= episode[-1]["tick"] + CONTACT_OUTCOME_GRACE_TICKS
+            ]
+            player_died = next(
+                (
+                    death
+                    for death in relevant_deaths
+                    if _same_identity(death, "user", player.name, player.steamid)
+                    and _same_identity(
+                        death,
+                        "attacker",
+                        first["opponent_name"],
+                        first["opponent_steamid"],
+                    )
+                ),
+                None,
+            )
+            opponent_died = next(
+                (
+                    death
+                    for death in relevant_deaths
+                    if _same_identity(death, "attacker", player.name, player.steamid)
+                    and _same_identity(
+                        death,
+                        "user",
+                        first["opponent_name"],
+                        first["opponent_steamid"],
+                    )
+                ),
+                None,
+            )
+            outcome = "death" if player_died else "kill" if opponent_died else "disengaged"
+            outcome_tick = _integer(player_died or opponent_died or {}, "tick")
+            end_tick = max(episode[-1]["tick"], outcome_tick)
+            view_error = (
+                cls._view_angle_error(player_row, opponent_position)
+                if opponent_position is not None
+                else None
+            )
+            result.append(
+                ContactEpisode(
+                    round_number=round_index + 1,
+                    start_tick=start_tick,
+                    end_tick=end_tick,
+                    location=_text(player_row, "last_place_name") or "Unknown",
+                    side=_normalize_side(player_team),
+                    opponent_location=(
+                        _text(opponent_row, "last_place_name") or None
+                        if opponent_row is not None
+                        else None
+                    ),
+                    first_damage_by_player=bool(first["outgoing"]),
+                    damage_dealt=min(
+                        500,
+                        sum(item["damage"] for item in episode if item["outgoing"]),
+                    ),
+                    damage_taken=min(
+                        500,
+                        sum(item["damage"] for item in episode if not item["outgoing"]),
+                    ),
+                    outcome=outcome,
+                    duration_seconds=round((end_tick - start_tick) / TICKS_PER_SECOND, 1),
+                    weapon=first["weapon"],
+                    health_before_contact=max(
+                        0, _integer(player_row, "health", default=100)
+                    ),
+                    armor_before_contact=max(0, _integer(player_row, "armor_value")),
+                    opponent_distance=(
+                        round(math.dist(player_position, opponent_position))
+                        if opponent_position is not None
+                        else None
+                    ),
+                    alive_teammates=len(teammates),
+                    nearest_teammate_distance=(
+                        min(teammate_distances) if teammate_distances else None
+                    ),
+                    player_view_angle_error=view_error,
+                    player_facing_opponent=(
+                        view_error <= SUPPORT_VIEW_ANGLE_THRESHOLD
+                        if view_error is not None
+                        else None
+                    ),
+                    support_ready_teammates_proxy=cls._support_ready_teammates(
+                        player_position=player_position,
+                        teammates=teammates,
+                        killer_position=opponent_position,
+                        active_smokes=active_smokes,
+                    ),
+                )
+            )
+        return result
 
     @staticmethod
     def _bomb_context(

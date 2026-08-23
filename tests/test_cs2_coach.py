@@ -14,6 +14,10 @@ from chapter07_cs2_coach.annotations import (
     create_annotation_package,
     evaluate_annotations,
 )
+from chapter07_cs2_coach.contact_analysis import (
+    compare_contact_outcomes,
+    evaluate_contact_coverage,
+)
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
 from chapter07_cs2_coach.decision_scoring import build_decision_cards, score_engagement
@@ -25,7 +29,7 @@ from chapter07_cs2_coach.knowledge_base import (
     load_knowledge,
     retrieve_tactical_knowledge,
 )
-from chapter07_cs2_coach.models import EngagementRecord, MatchRecord
+from chapter07_cs2_coach.models import ContactEpisode, EngagementRecord, MatchRecord
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
@@ -552,6 +556,52 @@ class CS2CoachToolTests(unittest.TestCase):
         self.assertEqual(summary["deaths"], 12)
         self.assertEqual(summary["adr"], 102.6)
 
+    def test_contact_comparison_uses_kills_deaths_and_keeps_disengagements(self):
+        outcomes = [
+            ("kill", True, 1),
+            ("kill", True, 2),
+            ("kill", True, 3),
+            ("death", True, 4),
+            ("kill", False, 5),
+            ("death", False, 6),
+            ("death", False, 7),
+            ("death", False, 8),
+            ("disengaged", False, 9),
+        ]
+        contacts = [
+            ContactEpisode(
+                round_number=round_number,
+                start_tick=round_number * 100,
+                end_tick=round_number * 100 + 10,
+                location="LongA",
+                side="T",
+                first_damage_by_player=first_damage,
+                damage_dealt=80 if outcome == "kill" else 20,
+                damage_taken=80 if outcome == "death" else 20,
+                outcome=outcome,
+                duration_seconds=0.2,
+                health_before_contact=100,
+                armor_before_contact=100,
+                alive_teammates=2,
+                nearest_teammate_distance=300,
+                support_ready_teammates_proxy=1 if first_damage else 0,
+            )
+            for outcome, first_damage, round_number in outcomes
+        ]
+
+        comparison = compare_contact_outcomes(contacts)
+
+        self.assertEqual(comparison.all_contacts.total, 9)
+        self.assertEqual(comparison.all_contacts.disengaged, 1)
+        self.assertEqual(comparison.first_damage_by_player.kill_rate, 0.75)
+        self.assertEqual(comparison.first_damage_by_opponent.kill_rate, 0.25)
+
+        match = SAMPLE_MATCH.model_copy(update={"contact_episodes": contacts})
+        evidence = analyze_engagement_decisions(match)
+        findings = "\n".join(item.finding for item in evidence)
+        self.assertIn("先取得有效伤害", findings)
+        self.assertIn("队友空间距离近", findings)
+
     def test_match_rejects_score_inconsistent_with_rounds(self):
         payload = SAMPLE_MATCH.model_dump()
         payload["team_score"] = 11
@@ -650,6 +700,11 @@ class CS2DemoParserTests(unittest.TestCase):
         self.assertIsNone(
             match.engagements[0].smoke_between_player_and_nearest_teammate
         )
+        self.assertEqual(len(match.contact_episodes), 1)
+        self.assertEqual(match.contact_episodes[0].outcome, "kill")
+        coverage = evaluate_contact_coverage(1, 1, match.contact_episodes)
+        self.assertEqual(coverage.kill_coverage, 1.0)
+        self.assertEqual(coverage.death_coverage, 0.0)
 
     def test_context_events_enrich_engagement_snapshot(self):
         parser = CS2DemoMatchParser(ContextAwareDemoParser)
@@ -675,6 +730,12 @@ class CS2DemoParserTests(unittest.TestCase):
         self.assertEqual(engagement.nearest_teammate_view_angle_error, 0)
         self.assertTrue(engagement.nearest_teammate_facing_killer)
         self.assertEqual(engagement.support_ready_teammates_proxy, 0)
+        self.assertEqual(
+            [item.outcome for item in match.contact_episodes], ["kill", "death"]
+        )
+        coverage = evaluate_contact_coverage(1, 1, match.contact_episodes)
+        self.assertEqual(coverage.kill_coverage, 1.0)
+        self.assertEqual(coverage.death_coverage, 1.0)
 
     def test_smoke_segment_proxy_respects_distance_and_height(self):
         blocks = CS2DemoMatchParser._smoke_blocks_segment

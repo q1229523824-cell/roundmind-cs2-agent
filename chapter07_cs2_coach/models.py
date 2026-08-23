@@ -88,6 +88,39 @@ class EngagementRecord(BaseModel):
     support_ready_teammates_proxy: int | None = Field(default=None, ge=0, le=4)
 
 
+class ContactEpisode(BaseModel):
+    """一次由枪械伤害触发的交火片段，包含成功、死亡与脱离样本。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    round_number: int = Field(ge=1, le=100)
+    start_tick: int = Field(ge=0)
+    end_tick: int = Field(ge=0)
+    location: str = Field(min_length=1, max_length=80)
+    side: Literal["T", "CT"]
+    opponent_location: str | None = Field(default=None, min_length=1, max_length=80)
+    first_damage_by_player: bool
+    damage_dealt: int = Field(ge=0, le=500)
+    damage_taken: int = Field(ge=0, le=500)
+    outcome: Literal["kill", "death", "disengaged"]
+    duration_seconds: float = Field(ge=0, le=30)
+    weapon: str = Field(default="unknown", min_length=1, max_length=80)
+    health_before_contact: int = Field(ge=0, le=100)
+    armor_before_contact: int = Field(ge=0, le=100)
+    opponent_distance: int | None = Field(default=None, ge=0, le=100000)
+    alive_teammates: int = Field(ge=0, le=4)
+    nearest_teammate_distance: int | None = Field(default=None, ge=0, le=100000)
+    player_view_angle_error: int | None = Field(default=None, ge=0, le=180)
+    player_facing_opponent: bool | None = None
+    support_ready_teammates_proxy: int | None = Field(default=None, ge=0, le=4)
+
+    @model_validator(mode="after")
+    def validate_tick_order(self) -> "ContactEpisode":
+        if self.end_tick < self.start_tick:
+            raise ValueError("交火结束 Tick 不能早于开始 Tick。")
+        return self
+
+
 class MatchRecord(BaseModel):
     """一次分析所需的最小比赛数据。"""
 
@@ -103,6 +136,7 @@ class MatchRecord(BaseModel):
     opponent_score: int = Field(ge=0, le=100)
     rounds: list[RoundRecord] = Field(min_length=1, max_length=100)
     engagements: list[EngagementRecord] = Field(default_factory=list, max_length=100)
+    contact_episodes: list[ContactEpisode] = Field(default_factory=list, max_length=500)
 
     @model_validator(mode="after")
     def validate_round_numbers(self) -> "MatchRecord":
@@ -116,6 +150,8 @@ class MatchRecord(BaseModel):
             raise ValueError("回合胜负记录与本方比分不一致。")
         if any(item.round_number not in numbers for item in self.engagements):
             raise ValueError("接战快照必须引用现有回合。")
+        if any(item.round_number not in numbers for item in self.contact_episodes):
+            raise ValueError("交火片段必须引用现有回合。")
         return self
 
 

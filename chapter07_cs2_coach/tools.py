@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from chapter07_cs2_coach.contact_analysis import compare_contact_outcomes
 from chapter07_cs2_coach.models import Evidence, MatchRecord
 
 
@@ -243,6 +244,77 @@ def analyze_engagement_decisions(match: MatchRecord) -> list[Evidence]:
                 suggestion=(
                     "接触前用一句口令或停顿半秒确认队友准星已经到位；两人尽量从能看到同一目标的"
                     "角度同步拉出，而不是只有空间距离接近。"
+                ),
+            )
+        )
+    contacts = compare_contact_outcomes(match.contact_episodes)
+    initiated = contacts.first_damage_by_player
+    received = contacts.first_damage_by_opponent
+    if (
+        initiated.resolved >= 3
+        and received.resolved >= 3
+        and initiated.kill_rate is not None
+        and received.kill_rate is not None
+        and initiated.kill_rate - received.kill_rate >= 0.15
+    ):
+        received_death_rounds = sorted(
+            {
+                item.round_number
+                for item in match.contact_episodes
+                if not item.first_damage_by_player and item.outcome == "death"
+            }
+        )
+        evidence.append(
+            Evidence(
+                finding="完整交火样本显示，先取得有效伤害时的转化明显更好，被对手先手时更容易失去交火主动权。",
+                round_numbers=received_death_rounds,
+                metric=(
+                    f"先造成伤害：{initiated.kills} 胜/{initiated.deaths} 负，"
+                    f"转化率 {initiated.kill_rate:.1%}；被先造成伤害："
+                    f"{received.kills} 胜/{received.deaths} 负，"
+                    f"转化率 {received.kill_rate:.1%}；另有 "
+                    f"{initiated.disengaged + received.disengaged} 次脱离未计入胜率"
+                ),
+                severity="medium",
+                suggestion=(
+                    "优先优化预瞄和信息获取；没有取得先手时先用掩体重置交火，"
+                    "不要在血量与准星劣势下机械续枪。"
+                ),
+            )
+        )
+    ready = contacts.nearby_support_ready
+    unready = contacts.nearby_support_unready
+    if (
+        ready.resolved >= 3
+        and unready.resolved >= 3
+        and ready.kill_rate is not None
+        and unready.kill_rate is not None
+        and ready.kill_rate - unready.kill_rate >= 0.2
+    ):
+        unready_death_rounds = sorted(
+            {
+                item.round_number
+                for item in match.contact_episodes
+                if item.nearest_teammate_distance is not None
+                and item.nearest_teammate_distance <= 750
+                and item.support_ready_teammates_proxy == 0
+                and item.outcome == "death"
+            }
+        )
+        evidence.append(
+            Evidence(
+                finding="队友空间距离近并不等于已经形成补枪；本场在队友朝向与烟雾代理未就绪时，交火结果明显更差。",
+                round_numbers=unready_death_rounds,
+                metric=(
+                    f"补枪代理就绪：{ready.kills} 胜/{ready.deaths} 负，"
+                    f"转化率 {ready.kill_rate:.1%}；未就绪："
+                    f"{unready.kills} 胜/{unready.deaths} 负，"
+                    f"转化率 {unready.kill_rate:.1%}"
+                ),
+                severity="medium",
+                suggestion=(
+                    "接触前除了看小地图距离，还要确认队友准星方向和烟雾线路；"
+                    "队友尚未面向同一威胁时，先停顿或报点再同步拉出。"
                 ),
             )
         )
