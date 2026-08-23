@@ -33,6 +33,10 @@ from chapter07_cs2_coach.knowledge_base import (
 from chapter07_cs2_coach.models import ContactEpisode, EngagementRecord, MatchRecord
 from chapter07_cs2_coach.player_profile import build_player_profile
 from chapter07_cs2_coach.personal_baseline import build_personal_contact_contrasts
+from chapter07_cs2_coach.profile_cli import (
+    build_profile_from_demos,
+    collect_demo_paths,
+)
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
@@ -656,6 +660,39 @@ class CS2CoachToolTests(unittest.TestCase):
                 for item in single_profile.findings
             )
         )
+        deduplicated = build_player_profile(
+            [matches[0], matches[0]],
+            player_steamid="42",
+            map_name="de_dust2",
+        )
+        self.assertEqual(deduplicated.match_count, 1)
+
+    def test_local_profile_batch_deduplicates_paths_and_parses_matches(self):
+        parser = CS2DemoMatchParser(FakeDemoParser)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            first = root / "first.dem"
+            second = root / "second.dem"
+            ignored = root / "notes.txt"
+            first.write_bytes(b"PBDEMS2\x00first")
+            second.write_bytes(b"PBDEMS2\x00second")
+            ignored.write_text("ignore", encoding="utf-8")
+
+            paths = collect_demo_paths(
+                [first, first],
+                root,
+                max_files=20,
+            )
+            profile, failures = build_profile_from_demos(
+                paths,
+                player_steamid="1",
+                map_name="de_mirage",
+                parser=parser,
+            )
+
+        self.assertEqual(paths, [first.resolve(), second.resolve()])
+        self.assertEqual(profile.match_count, 2)
+        self.assertEqual(failures, [])
 
     def test_match_rejects_score_inconsistent_with_rounds(self):
         payload = SAMPLE_MATCH.model_dump()

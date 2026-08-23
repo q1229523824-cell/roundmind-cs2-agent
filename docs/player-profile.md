@@ -25,3 +25,18 @@ GET /api/player-profiles/{steamid}?map_name=de_dust2
 
 不提供 `map_name` 时聚合该 SteamID 当前进程内的所有地图。当前比赛仓库仍保存在内存中，Render 重启后
 画像会丢失；生产版本应把 `MatchRepository` 替换为 PostgreSQL，同时继续使用相同画像函数。
+
+## 本地批量模式
+
+本地模式可以一次解析目录中的多份 Demo，不需要上传 Render：
+
+```powershell
+python -m chapter07_cs2_coach.profile_cli `
+  --demo-dir "D:\CS2\demos" `
+  --player-steamid "7656..." `
+  --map-name de_dust2 `
+  --output ".agent_data\profiles\dust2.json"
+```
+
+默认最多读取 20 个文件，可用 `--max-files` 调整到 1—100。重复路径会被去重，解析完成后还会按
+Demo 内容生成的 `match_id` 再次去重，避免同一比赛被复制或重复传入后放大画像证据。

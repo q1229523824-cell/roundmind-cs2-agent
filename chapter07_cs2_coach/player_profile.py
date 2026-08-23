@@ -198,12 +198,13 @@ def build_player_profile(
     player_steamid: str,
     map_name: str | None = None,
 ) -> PlayerProfileResponse:
-    selected = [
-        match
+    selected_by_id = {
+        match.match_id: match
         for match in matches
         if match.player_steamid == player_steamid
         and (map_name is None or match.map_name == map_name)
-    ]
+    }
+    selected = list(selected_by_id.values())
     if not selected:
         raise KeyError("没有找到该 SteamID 对应的比赛画像数据。")
     contacts = [item for match in selected for item in match.contact_episodes]
