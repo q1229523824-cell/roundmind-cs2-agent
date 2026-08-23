@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from chapter07_cs2_coach.contact_analysis import compare_contact_outcomes
+from chapter07_cs2_coach.contact_analysis import (
+    compare_contact_outcomes,
+    find_contact_hotspots,
+)
 from chapter07_cs2_coach.models import Evidence, MatchRecord
 
 
@@ -255,7 +258,9 @@ def analyze_engagement_decisions(match: MatchRecord) -> list[Evidence]:
         and received.resolved >= 3
         and initiated.kill_rate is not None
         and received.kill_rate is not None
-        and initiated.kill_rate - received.kill_rate >= 0.15
+        and initiated.smoothed_kill_rate is not None
+        and received.smoothed_kill_rate is not None
+        and initiated.smoothed_kill_rate - received.smoothed_kill_rate >= 0.12
     ):
         received_death_rounds = sorted(
             {
@@ -264,6 +269,8 @@ def analyze_engagement_decisions(match: MatchRecord) -> list[Evidence]:
                 if not item.first_damage_by_player and item.outcome == "death"
             }
         )
+        initiated_interval = initiated.kill_rate_interval
+        received_interval = received.kill_rate_interval
         evidence.append(
             Evidence(
                 finding="完整交火样本显示，先取得有效伤害时的转化明显更好，被对手先手时更容易失去交火主动权。",
@@ -273,7 +280,10 @@ def analyze_engagement_decisions(match: MatchRecord) -> list[Evidence]:
                     f"转化率 {initiated.kill_rate:.1%}；被先造成伤害："
                     f"{received.kills} 胜/{received.deaths} 负，"
                     f"转化率 {received.kill_rate:.1%}；另有 "
-                    f"{initiated.disengaged + received.disengaged} 次脱离未计入胜率"
+                    f"{initiated.disengaged + received.disengaged} 次脱离未计入胜率；"
+                    f"95% 区间分别为 {initiated_interval[0]:.1%}–"
+                    f"{initiated_interval[1]:.1%} 与 {received_interval[0]:.1%}–"
+                    f"{received_interval[1]:.1%}"
                 ),
                 severity="medium",
                 suggestion=(
@@ -289,7 +299,9 @@ def analyze_engagement_decisions(match: MatchRecord) -> list[Evidence]:
         and unready.resolved >= 3
         and ready.kill_rate is not None
         and unready.kill_rate is not None
-        and ready.kill_rate - unready.kill_rate >= 0.2
+        and ready.smoothed_kill_rate is not None
+        and unready.smoothed_kill_rate is not None
+        and ready.smoothed_kill_rate - unready.smoothed_kill_rate >= 0.15
     ):
         unready_death_rounds = sorted(
             {
@@ -301,20 +313,67 @@ def analyze_engagement_decisions(match: MatchRecord) -> list[Evidence]:
                 and item.outcome == "death"
             }
         )
+        ready_interval = ready.kill_rate_interval
+        unready_interval = unready.kill_rate_interval
+        small_sample = min(ready.resolved, unready.resolved) < 8
         evidence.append(
             Evidence(
-                finding="队友空间距离近并不等于已经形成补枪；本场在队友朝向与烟雾代理未就绪时，交火结果明显更差。",
+                finding=(
+                    "小样本提示，队友空间距离近并不等于已经形成补枪；"
+                    "队友朝向与烟雾代理未就绪时，交火结果值得重点复核。"
+                    if small_sample
+                    else "队友空间距离近并不等于已经形成补枪；本场在队友朝向与烟雾代理未就绪时，交火结果明显更差。"
+                ),
                 round_numbers=unready_death_rounds,
                 metric=(
                     f"补枪代理就绪：{ready.kills} 胜/{ready.deaths} 负，"
                     f"转化率 {ready.kill_rate:.1%}；未就绪："
                     f"{unready.kills} 胜/{unready.deaths} 负，"
-                    f"转化率 {unready.kill_rate:.1%}"
+                    f"转化率 {unready.kill_rate:.1%}；95% 区间分别为 "
+                    f"{ready_interval[0]:.1%}–{ready_interval[1]:.1%} 与 "
+                    f"{unready_interval[0]:.1%}–{unready_interval[1]:.1%}"
                 ),
                 severity="medium",
                 suggestion=(
                     "接触前除了看小地图距离，还要确认队友准星方向和烟雾线路；"
                     "队友尚未面向同一威胁时，先停顿或报点再同步拉出。"
+                ),
+            )
+        )
+    hotspots = find_contact_hotspots(match.contact_episodes, min_resolved=4)
+    weakest = hotspots[0] if hotspots else None
+    if (
+        weakest is not None
+        and weakest.stats.kill_rate is not None
+        and weakest.stats.kill_rate <= 0.45
+    ):
+        hotspot_rounds = sorted(
+            {
+                item.round_number
+                for item in match.contact_episodes
+                if item.side == weakest.side
+                and item.location == weakest.location
+                and item.outcome == "death"
+            }
+        )
+        interval = weakest.stats.kill_rate_interval
+        evidence.append(
+            Evidence(
+                finding=(
+                    f"{weakest.side} 方 {_location_label(match, weakest.location)} 是本场样本中"
+                    "转化最弱的高频交火区域。"
+                ),
+                round_numbers=hotspot_rounds,
+                metric=(
+                    f"{weakest.stats.kills} 胜/{weakest.stats.deaths} 负，"
+                    f"脱离 {weakest.stats.disengaged} 次，转化率 "
+                    f"{weakest.stats.kill_rate:.1%}，95% 区间 "
+                    f"{interval[0]:.1%}–{interval[1]:.1%}"
+                ),
+                severity="medium",
+                suggestion=(
+                    "优先回看这些回合的第一接触位置、预瞄落点与撤退路线；"
+                    "在同一点位重复失败前，先改变道具顺序或接触时机。"
                 ),
             )
         )

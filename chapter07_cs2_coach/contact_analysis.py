@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from typing import Iterable
 
 from chapter07_cs2_coach.models import ContactEpisode
@@ -24,6 +25,42 @@ class ContactOutcomeStats:
         if not self.resolved:
             return None
         return round(self.kills / self.resolved, 4)
+
+    @property
+    def smoothed_kill_rate(self) -> float | None:
+        if not self.resolved:
+            return None
+        return round((self.kills + 1) / (self.resolved + 2), 4)
+
+    @property
+    def kill_rate_interval(self) -> tuple[float, float] | None:
+        """二项比例的 95% Wilson 区间，小样本时不会给出虚假精度。"""
+
+        if not self.resolved:
+            return None
+        z = 1.96
+        n = self.resolved
+        proportion = self.kills / n
+        denominator = 1 + z * z / n
+        center = (proportion + z * z / (2 * n)) / denominator
+        margin = (
+            z
+            * math.sqrt(
+                proportion * (1 - proportion) / n + z * z / (4 * n * n)
+            )
+            / denominator
+        )
+        return round(max(0.0, center - margin), 4), round(
+            min(1.0, center + margin), 4
+        )
+
+    @property
+    def evidence_strength(self) -> str:
+        if self.resolved < 8:
+            return "low"
+        if self.resolved < 20:
+            return "medium"
+        return "high"
 
 
 @dataclass(frozen=True)
@@ -53,6 +90,13 @@ class ContactCoverage:
         if not self.expected_deaths:
             return None
         return round(self.captured_deaths / self.expected_deaths, 4)
+
+
+@dataclass(frozen=True)
+class ContactHotspot:
+    side: str
+    location: str
+    stats: ContactOutcomeStats
 
 
 def summarize_contacts(episodes: Iterable[ContactEpisode]) -> ContactOutcomeStats:
@@ -109,11 +153,41 @@ def evaluate_contact_coverage(
     )
 
 
+def find_contact_hotspots(
+    episodes: Iterable[ContactEpisode],
+    *,
+    min_resolved: int = 3,
+) -> list[ContactHotspot]:
+    grouped: dict[tuple[str, str], list[ContactEpisode]] = {}
+    for item in episodes:
+        if item.location == "Unknown":
+            continue
+        grouped.setdefault((item.side, item.location), []).append(item)
+    hotspots = [
+        ContactHotspot(side=side, location=location, stats=summarize_contacts(items))
+        for (side, location), items in grouped.items()
+        if summarize_contacts(items).resolved >= min_resolved
+    ]
+    return sorted(
+        hotspots,
+        key=lambda item: (
+            item.stats.smoothed_kill_rate
+            if item.stats.smoothed_kill_rate is not None
+            else 1.0,
+            -item.stats.resolved,
+            item.side,
+            item.location,
+        ),
+    )
+
+
 __all__ = [
     "ContactComparison",
     "ContactCoverage",
+    "ContactHotspot",
     "ContactOutcomeStats",
     "compare_contact_outcomes",
     "evaluate_contact_coverage",
+    "find_contact_hotspots",
     "summarize_contacts",
 ]

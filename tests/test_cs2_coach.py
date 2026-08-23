@@ -17,6 +17,7 @@ from chapter07_cs2_coach.annotations import (
 from chapter07_cs2_coach.contact_analysis import (
     compare_contact_outcomes,
     evaluate_contact_coverage,
+    find_contact_hotspots,
 )
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
@@ -595,12 +596,24 @@ class CS2CoachToolTests(unittest.TestCase):
         self.assertEqual(comparison.all_contacts.disengaged, 1)
         self.assertEqual(comparison.first_damage_by_player.kill_rate, 0.75)
         self.assertEqual(comparison.first_damage_by_opponent.kill_rate, 0.25)
+        self.assertEqual(
+            comparison.first_damage_by_player.smoothed_kill_rate, 0.6667
+        )
+        lower, upper = comparison.first_damage_by_player.kill_rate_interval
+        self.assertLess(lower, comparison.first_damage_by_player.kill_rate)
+        self.assertGreater(upper, comparison.first_damage_by_player.kill_rate)
+        self.assertEqual(comparison.first_damage_by_player.evidence_strength, "low")
+
+        hotspots = find_contact_hotspots(contacts, min_resolved=3)
+        self.assertEqual(hotspots[0].location, "LongA")
+        self.assertEqual(hotspots[0].stats.resolved, 8)
 
         match = SAMPLE_MATCH.model_copy(update={"contact_episodes": contacts})
         evidence = analyze_engagement_decisions(match)
         findings = "\n".join(item.finding for item in evidence)
         self.assertIn("先取得有效伤害", findings)
         self.assertIn("队友空间距离近", findings)
+        self.assertIn("95% 区间", "\n".join(item.metric for item in evidence))
 
     def test_match_rejects_score_inconsistent_with_rounds(self):
         payload = SAMPLE_MATCH.model_dump()
