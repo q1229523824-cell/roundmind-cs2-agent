@@ -66,5 +66,6 @@ class CS2CoachRuntime:
             evidence=result.get("evidence", []),
             tools_used=result.get("tools_used", []),
             execution_trace=result.get("execution_trace", []),
+            knowledge_references=result.get("knowledge_references", []),
             confidence=result.get("confidence", "low"),
         )

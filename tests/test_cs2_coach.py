@@ -11,6 +11,10 @@ from pydantic import ValidationError
 from chapter07_cs2_coach.api import MAX_DEMO_BYTES, MAX_DEMO_MB, create_app
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
+from chapter07_cs2_coach.knowledge_base import (
+    load_knowledge,
+    retrieve_tactical_knowledge,
+)
 from chapter07_cs2_coach.models import EngagementRecord, MatchRecord
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
@@ -208,6 +212,62 @@ class DuplicateNameDemoParser(FakeDemoParser):
 
 
 class CS2CoachToolTests(unittest.TestCase):
+    def test_dust2_knowledge_base_has_unique_valid_entries(self):
+        entries = load_knowledge()
+
+        self.assertGreaterEqual(len(entries), 10)
+        self.assertEqual(len({item.id for item in entries}), len(entries))
+        self.assertTrue(all(item.source for item in entries))
+
+    def test_knowledge_retrieval_uses_location_and_question(self):
+        match = SAMPLE_MATCH.model_copy(
+            update={
+                "map_name": "de_dust2",
+                "engagements": [
+                    EngagementRecord(
+                        round_number=3,
+                        tick=100,
+                        classification="isolated_advance",
+                        location="LongA",
+                        side="T",
+                        position_x=0,
+                        position_y=0,
+                        position_z=0,
+                        health=100,
+                        armor=100,
+                        weapon="AK-47",
+                        alive_teammates=3,
+                        alive_enemies=4,
+                        nearest_teammate_distance=1400,
+                        nearby_support=False,
+                        moved_distance_5s=600,
+                        effective_team_flashes_5s=0,
+                        was_traded=False,
+                    )
+                ],
+            }
+        )
+        evidence = analyze_engagement_decisions(match)
+
+        references = retrieve_tactical_knowledge(
+            match,
+            "分析 A 大孤立前压和补枪问题",
+            evidence,
+        )
+
+        self.assertEqual(len(references), 3)
+        self.assertEqual(references[0].knowledge_id, "dust2-isolation-001")
+        self.assertIn("isolation", references[0].matched_topics)
+
+    def test_knowledge_retrieval_is_map_scoped(self):
+        references = retrieve_tactical_knowledge(
+            SAMPLE_MATCH,
+            "分析补枪问题",
+            [],
+        )
+
+        self.assertEqual(references, [])
+
     def test_summary_is_calculated_from_round_facts(self):
         summary = get_match_summary(SAMPLE_MATCH)
 
@@ -385,6 +445,23 @@ class CS2CoachWorkflowTests(unittest.TestCase):
         )
 
         self.assertEqual(result.tools_used, ["engagements"])
+
+    def test_dust2_report_exposes_knowledge_sources(self):
+        match = SAMPLE_MATCH.model_copy(
+            update={"match_id": "demo-dust2-kb", "map_name": "de_dust2"}
+        )
+        self.runtime.add_match(match)
+
+        result = self.runtime.analyze(
+            match_id=match.match_id,
+            question="分析我的补枪和队友同步问题",
+        )
+
+        self.assertGreaterEqual(len(result.knowledge_references), 1)
+        self.assertIn("Dust2 战术知识参考", result.answer)
+        self.assertTrue(
+            any("knowledge_retriever:" in step for step in result.execution_trace)
+        )
 
 
 class CS2CoachApiTests(unittest.TestCase):

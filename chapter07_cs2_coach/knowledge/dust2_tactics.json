@@ -1,0 +1,122 @@
+[
+  {
+    "id": "dust2-isolation-001",
+    "title": "进入新交火区前先建立补枪条件",
+    "map": "de_dust2",
+    "sides": ["T", "CT"],
+    "locations": ["LongA", "UpperTunnel", "Catwalk", "Middle", "LongDoors", "BDoors"],
+    "topics": ["isolation", "trade", "engagement"],
+    "keywords": ["孤立", "单摸", "前压", "队友距离", "补枪", "接战"],
+    "principle": "从一个区域进入下一个可能交火的区域前，应确认最近队友能够在短时间内看到同一目标或完成补枪。只有空间距离接近还不够，还要同步准星和拉出时机。",
+    "action": "把进入新区域前的口令固定为“到位了吗”；未得到确认时先停步、控图或用道具逼退敌人。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-long-entry-001",
+    "title": "T 方 A 大第一身位需要闪光与第二身位",
+    "map": "de_dust2",
+    "sides": ["T"],
+    "locations": ["LongDoors", "LongA"],
+    "topics": ["utility", "trade", "opening_duel"],
+    "keywords": ["A大", "A门", "第一身位", "突破", "首杀", "闪光"],
+    "principle": "A 门到 A 大的首轮交火通常同时受近点、蓝箱和远端枪线影响。第一身位的任务是借闪光取得空间和信息，第二身位必须保持可补枪，而不是让第一身位独自连续清多个角度。",
+    "action": "复盘 A 大死亡时同时检查：出门闪是否生效、第二身位距离、第一身位是否在闪爆前提前暴露。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-b-entry-001",
+    "title": "B 二层出口需要分工清点",
+    "map": "de_dust2",
+    "sides": ["T"],
+    "locations": ["UpperTunnel", "Hole", "BombsiteB"],
+    "topics": ["utility", "trade", "engagement"],
+    "keywords": ["B二层", "B洞", "B包点", "突破", "道具", "补枪"],
+    "principle": "B 二层出口狭窄，第一身位无法稳定同时处理车位、台上、后 B 和门窗方向。队伍应通过燃烧弹、烟雾和明确的清点分工减少第一身位需要处理的枪线。",
+    "action": "进入前明确每名玩家负责的角度，并检查第一身位死亡后的两秒内是否有人获得有效补枪视线。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-short-entry-001",
+    "title": "A 小接触要避免队形被楼梯切断",
+    "map": "de_dust2",
+    "sides": ["T"],
+    "locations": ["Catwalk", "ShortStairs", "UnderA", "BombsiteA"],
+    "topics": ["trade", "engagement", "utility"],
+    "keywords": ["A小", "A小下", "楼梯", "补枪", "同步", "烟雾"],
+    "principle": "A 小上包点时，楼梯和拐角容易让队伍的视线与移动节奏脱节。前后两人应保持能处理同一目标的间距，并用烟雾隔离警家或 A 大枪线。",
+    "action": "训练时只跟踪两个指标：第一身位接敌时第二身位是否已经过楼梯，以及两人是否在两秒内完成同目标交火。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-ct-repeek-001",
+    "title": "CT 取得信息后不要无条件重复前压",
+    "map": "de_dust2",
+    "sides": ["CT"],
+    "locations": ["LongA", "Middle", "BDoors", "UnderA"],
+    "topics": ["engagement", "opening_duel", "survival"],
+    "keywords": ["CT", "前压", "重复peek", "首死", "信息", "防守"],
+    "principle": "防守方前压的价值来自早期信息或人数收益。得到信息后继续重复接触，会让对手预瞄并用道具反制；若没有队友可以补枪，应优先换位并把信息转化为队伍轮转。",
+    "action": "每次 CT 前压后记录是否已经获得信息；若答案是肯定的，下一动作优先选择撤退、换位或等待队友，而非立即再次 peek。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-trade-timing-001",
+    "title": "附近有队友不等于具备补枪条件",
+    "map": "de_dust2",
+    "sides": ["T", "CT"],
+    "locations": [],
+    "topics": ["trade", "engagement"],
+    "keywords": ["补枪", "队友", "距离", "同步", "没补到", "视线"],
+    "principle": "补枪条件由距离、视线、准星准备和接触时间共同决定。两名玩家即使相距很近，只要从不同高度或不同角度接敌，仍可能无法交换击杀。",
+    "action": "对附近队友仍未补枪的死亡，优先检查双方是否看到同一目标，以及第一身位是否给了第二身位半秒准备时间。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-utility-support-001",
+    "title": "评价闪光要看是否帮助队友接敌",
+    "map": "de_dust2",
+    "sides": ["T", "CT"],
+    "locations": [],
+    "topics": ["utility", "engagement"],
+    "keywords": ["闪光", "道具", "白敌", "队友闪", "有效闪"],
+    "principle": "闪白人数不能单独代表闪光质量。更重要的是闪光生效时队友是否已经能够接敌、是否隔离了关键枪线，以及是否同时影响己方玩家。",
+    "action": "把有效闪光定义为：命中敌人后短时间内己方发生有利接触；单独统计白敌次数只作为辅助指标。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-man-advantage-001",
+    "title": "人数优势时减少无支援单挑",
+    "map": "de_dust2",
+    "sides": ["T", "CT"],
+    "locations": [],
+    "topics": ["engagement", "trade", "conversion"],
+    "keywords": ["人数优势", "多打少", "转化", "白给", "接战"],
+    "principle": "人数优势的核心是让下一次交火可交换。无支援的单独 peek 会把优势重新变成均势，并扩大对手逐个击破的机会。",
+    "action": "取得人数优势后优先两人一组控制关键通道；若下一次接触无法被交换，就应把它视为高风险决策。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-economy-001",
+    "title": "购买目标应在回合开始前统一",
+    "map": "de_dust2",
+    "sides": ["T", "CT"],
+    "locations": [],
+    "topics": ["economy"],
+    "keywords": ["经济", "强起", "半起", "eco", "购买"],
+    "principle": "个人购买强度必须服务于全队的回合目标。分散的半起会同时降低当前回合的道具完整度和下一回合的长枪质量。",
+    "action": "购买前明确全队是纯经济、集中强起还是为核心枪位补枪，并让道具与预定进攻路线匹配。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  },
+  {
+    "id": "dust2-clutch-time-001",
+    "title": "残局先计算时间与胜利条件",
+    "map": "de_dust2",
+    "sides": ["T", "CT"],
+    "locations": [],
+    "topics": ["clutch", "conversion"],
+    "keywords": ["残局", "时间", "拆包", "保枪", "转化"],
+    "principle": "残局击杀只有在仍保留完成回合目标的时间时才具有同等价值。回防方尤其需要先计算到达、清点和拆包所需时间，再决定追求击杀还是保枪。",
+    "action": "残局开始时先说出剩余时间、已知敌人和胜利条件；时间不足时把保存装备作为显式选项。",
+    "source": "RoundMind Dust2 教练规则库 v1（项目自编）"
+  }
+]

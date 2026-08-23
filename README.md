@@ -16,7 +16,9 @@ demoparser2（Rust 核心）
         │  回合、击杀、伤害、道具、经济事实
         ▼
 LangGraph
-prepare → planner → tools → reviewer → reporter
+prepare → planner → tools → reviewer → knowledge_retriever → reporter
+                                      │
+                                      └── Dust2 本地战术知识库
         │
         ▼
 可追溯的中文复盘报告
@@ -40,6 +42,7 @@ render.yaml           Render Blueprint
 - 提取击杀、助攻、死亡、伤害、首轮交火、补枪、道具和装备价值；
 - 无论解析成功或失败都会删除临时文件；
 - 默认使用确定性 Planner，不产生模型调用费用；
+- Dust2 报告会用地图、阵营、点位、问题和比赛证据检索本地战术知识，并返回来源；
 - 可选 DeepSeek Planner，但只有显式启用时才会发送必要统计和问题。
 
 ## 本地启动
@@ -99,6 +102,19 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 
 六类工具包括：首轮交火、补枪、道具效率、经济决策、残局转化和接战决策。每轮最多运行六个工具，报告中的
 结论必须附带指标或相关回合。
+
+### Dust2 战术知识库
+
+第一版知识库位于 `chapter07_cs2_coach/knowledge/dust2_tactics.json`，包含 10 条项目自编的战术原则。
+检索器先按地图过滤，再综合阵营、Demo 还原出的点位、问题关键词和分析证据计分，返回最相关的 3 条，
+因此完全离线且没有 Embedding 费用。API 的 `knowledge_references` 字段会返回知识 ID、标题、原则、来源、
+匹配主题和分数，报告正文也会使用 `[knowledge_id]` 引用。
+
+这是一版可评测的 RAG MVP，而不是模型训练：Demo 事实仍由解析器和确定性工具计算，知识库只为训练建议
+提供战术依据。后续可以保持相同返回模型，将关键词检索替换为 Embedding + FAISS/pgvector。
+
+新增知识时请保持一条记录只表达一个原则，并填写稳定的 `id`、适用 `map/sides/locations/topics`、
+检索 `keywords`、原则、可执行动作和来源。若使用外部资料，应确认授权并记录具体出处，不能直接复制整篇内容。
 
 接战决策工具会在玩家死亡前重建局势快照，包括地图区域、双方存活人数、最近队友距离、
 五秒移动距离、近期有效闪光和实际补枪结果。第一版将 `1000` 地图单位作为明显孤立阈值，

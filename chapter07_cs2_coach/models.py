@@ -118,6 +118,19 @@ class Evidence(BaseModel):
     suggestion: str
 
 
+class KnowledgeReference(BaseModel):
+    """一次本地战术知识检索命中，可用于报告引用和离线评测。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    knowledge_id: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=160)
+    principle: str = Field(min_length=1, max_length=600)
+    source: str = Field(min_length=1, max_length=200)
+    matched_topics: list[str] = Field(default_factory=list, max_length=10)
+    score: int = Field(ge=0, le=100)
+
+
 class AnalysisResponse(BaseModel):
     match_id: str
     answer: str
@@ -125,6 +138,7 @@ class AnalysisResponse(BaseModel):
     evidence: list[Evidence]
     tools_used: list[str]
     execution_trace: list[str]
+    knowledge_references: list[KnowledgeReference] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low"]
 
 

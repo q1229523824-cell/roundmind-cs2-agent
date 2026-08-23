@@ -15,7 +15,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_deepseek import ChatDeepSeek
 from langgraph.graph import END, START, StateGraph
 
-from chapter07_cs2_coach.models import Evidence, MatchRecord
+from chapter07_cs2_coach.knowledge_base import retrieve_tactical_knowledge
+from chapter07_cs2_coach.models import Evidence, KnowledgeReference, MatchRecord
 from chapter07_cs2_coach.tools import ANALYSIS_TOOLS, get_match_summary
 
 
@@ -30,6 +31,7 @@ class CoachState(TypedDict, total=False):
     iteration: int
     answer: str
     confidence: str
+    knowledge_references: list[KnowledgeReference]
 
 
 class ToolPlanner(Protocol):
@@ -144,6 +146,7 @@ class CS2CoachWorkflow:
         builder.add_node("planner", self._planner)
         builder.add_node("tool_executor", self._tool_executor)
         builder.add_node("reviewer", self._reviewer)
+        builder.add_node("knowledge_retriever", self._knowledge_retriever)
         builder.add_node("reporter", self._reporter)
         builder.add_edge(START, "prepare")
         builder.add_edge("prepare", "planner")
@@ -157,7 +160,8 @@ class CS2CoachWorkflow:
             self._next_after_tool,
             {"tool": "tool_executor", "review": "reviewer"},
         )
-        builder.add_edge("reviewer", "reporter")
+        builder.add_edge("reviewer", "knowledge_retriever")
+        builder.add_edge("knowledge_retriever", "reporter")
         builder.add_edge("reporter", END)
         return builder.compile(name="cs2-review-coach")
 
@@ -171,6 +175,7 @@ class CS2CoachWorkflow:
             "evidence": [],
             "execution_trace": ["prepare: 已加载比赛并计算基础统计"],
             "iteration": 0,
+            "knowledge_references": [],
         }
 
     def _planner(self, state: CoachState) -> CoachState:
@@ -262,10 +267,33 @@ class CS2CoachWorkflow:
                     "训练重点：下一场先只跟踪最高优先级问题，避免一次同时修改太多习惯。",
                 ]
             )
+            references = state.get("knowledge_references", [])
+            if references:
+                lines.extend(["", "Dust2 战术知识参考："])
+                for item in references:
+                    lines.append(
+                        f"- [{item.knowledge_id}] {item.title}：{item.principle}（来源：{item.source}）"
+                    )
             answer = "\n".join(lines)
         trace = list(state.get("execution_trace", []))
         trace.append("reporter: 已生成带回合引用的中文复盘")
         return {"answer": answer, "execution_trace": trace}
+
+    @staticmethod
+    def _knowledge_retriever(state: CoachState) -> CoachState:
+        references = retrieve_tactical_knowledge(
+            state["match"],
+            state["question"],
+            state.get("evidence", []),
+        )
+        trace = list(state.get("execution_trace", []))
+        trace.append(
+            f"knowledge_retriever: 从 Dust2 本地知识库命中 {len(references)} 条战术原则"
+        )
+        return {
+            "knowledge_references": references,
+            "execution_trace": trace,
+        }
 
 
 __all__ = [
