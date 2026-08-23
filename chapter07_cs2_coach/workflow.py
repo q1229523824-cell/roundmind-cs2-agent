@@ -15,8 +15,17 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_deepseek import ChatDeepSeek
 from langgraph.graph import END, START, StateGraph
 
-from chapter07_cs2_coach.knowledge_base import retrieve_tactical_knowledge
-from chapter07_cs2_coach.models import Evidence, KnowledgeReference, MatchRecord
+from chapter07_cs2_coach.decision_scoring import build_decision_cards
+from chapter07_cs2_coach.knowledge_base import (
+    retrieve_for_engagement,
+    retrieve_tactical_knowledge,
+)
+from chapter07_cs2_coach.models import (
+    DecisionCard,
+    Evidence,
+    KnowledgeReference,
+    MatchRecord,
+)
 from chapter07_cs2_coach.tools import ANALYSIS_TOOLS, get_match_summary
 
 
@@ -32,6 +41,7 @@ class CoachState(TypedDict, total=False):
     answer: str
     confidence: str
     knowledge_references: list[KnowledgeReference]
+    decision_cards: list[DecisionCard]
 
 
 class ToolPlanner(Protocol):
@@ -146,6 +156,7 @@ class CS2CoachWorkflow:
         builder.add_node("planner", self._planner)
         builder.add_node("tool_executor", self._tool_executor)
         builder.add_node("reviewer", self._reviewer)
+        builder.add_node("decision_scorer", self._decision_scorer)
         builder.add_node("knowledge_retriever", self._knowledge_retriever)
         builder.add_node("reporter", self._reporter)
         builder.add_edge(START, "prepare")
@@ -160,7 +171,8 @@ class CS2CoachWorkflow:
             self._next_after_tool,
             {"tool": "tool_executor", "review": "reviewer"},
         )
-        builder.add_edge("reviewer", "knowledge_retriever")
+        builder.add_edge("reviewer", "decision_scorer")
+        builder.add_edge("decision_scorer", "knowledge_retriever")
         builder.add_edge("knowledge_retriever", "reporter")
         builder.add_edge("reporter", END)
         return builder.compile(name="cs2-review-coach")
@@ -176,6 +188,7 @@ class CS2CoachWorkflow:
             "execution_trace": ["prepare: 已加载比赛并计算基础统计"],
             "iteration": 0,
             "knowledge_references": [],
+            "decision_cards": [],
         }
 
     def _planner(self, state: CoachState) -> CoachState:
@@ -274,6 +287,14 @@ class CS2CoachWorkflow:
                     lines.append(
                         f"- [{item.knowledge_id}] {item.title}：{item.principle}（来源：{item.source}）"
                     )
+            cards = state.get("decision_cards", [])
+            if cards:
+                lines.extend(["", "高风险接战决策卡："])
+                for card in cards[:3]:
+                    lines.append(
+                        f"- R{card.round_number} {card.location}：风险 {card.risk_score}/100；"
+                        f"{card.better_action}"
+                    )
             answer = "\n".join(lines)
         trace = list(state.get("execution_trace", []))
         trace.append("reporter: 已生成带回合引用的中文复盘")
@@ -286,6 +307,18 @@ class CS2CoachWorkflow:
             state["question"],
             state.get("evidence", []),
         )
+        engagement_by_round = {
+            item.round_number: item for item in state["match"].engagements
+        }
+        for card in state.get("decision_cards", [])[:3]:
+            engagement = engagement_by_round.get(card.round_number)
+            if engagement is not None:
+                references.extend(
+                    retrieve_for_engagement(state["match"], engagement, limit=2)
+                )
+        references = list(
+            {item.knowledge_id: item for item in references}.values()
+        )[:5]
         trace = list(state.get("execution_trace", []))
         trace.append(
             f"knowledge_retriever: 从 Dust2 本地知识库命中 {len(references)} 条战术原则"
@@ -294,6 +327,15 @@ class CS2CoachWorkflow:
             "knowledge_references": references,
             "execution_trace": trace,
         }
+
+    @staticmethod
+    def _decision_scorer(state: CoachState) -> CoachState:
+        cards = build_decision_cards(state["match"])
+        trace = list(state.get("execution_trace", []))
+        trace.append(
+            f"decision_scorer: 为 {len(cards)} 次关键接战生成风险评分卡"
+        )
+        return {"decision_cards": cards, "execution_trace": trace}
 
 
 __all__ = [

@@ -11,6 +11,11 @@ from pydantic import ValidationError
 from chapter07_cs2_coach.api import MAX_DEMO_BYTES, MAX_DEMO_MB, create_app
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
+from chapter07_cs2_coach.decision_scoring import build_decision_cards, score_engagement
+from chapter07_cs2_coach.evaluation import (
+    load_evaluation_cases,
+    run_decision_evaluation,
+)
 from chapter07_cs2_coach.knowledge_base import (
     load_knowledge,
     retrieve_tactical_knowledge,
@@ -212,6 +217,113 @@ class DuplicateNameDemoParser(FakeDemoParser):
 
 
 class CS2CoachToolTests(unittest.TestCase):
+    def test_decision_risk_distinguishes_isolation_from_real_support(self):
+        base = {
+            "round_number": 3,
+            "tick": 100,
+            "location": "LongA",
+            "side": "T",
+            "position_x": 0,
+            "position_y": 0,
+            "position_z": 0,
+            "health": 100,
+            "armor": 100,
+            "weapon": "AK-47",
+            "alive_teammates": 3,
+            "alive_enemies": 4,
+        }
+        isolated = EngagementRecord(
+            **base,
+            classification="isolated_advance",
+            nearest_teammate_distance=1600,
+            nearby_support=False,
+            moved_distance_5s=700,
+            effective_team_flashes_5s=0,
+            was_traded=False,
+        )
+        supported = EngagementRecord(
+            **base,
+            classification="supported_contact",
+            nearest_teammate_distance=300,
+            nearby_support=True,
+            moved_distance_5s=100,
+            effective_team_flashes_5s=1,
+            was_traded=True,
+        )
+        match = SAMPLE_MATCH.model_copy(
+            update={"map_name": "de_dust2", "engagements": [isolated, supported]}
+        )
+
+        isolated_card = score_engagement(match, isolated)
+        supported_card = score_engagement(match, supported)
+
+        self.assertEqual(isolated_card.risk_level, "high")
+        self.assertGreaterEqual(isolated_card.risk_score, 85)
+        self.assertEqual(supported_card.risk_level, "low")
+        self.assertLess(supported_card.risk_score, 20)
+        self.assertIn("dust2-isolation-001", isolated_card.knowledge_ids)
+
+    def test_decision_cards_are_sorted_by_risk(self):
+        match = SAMPLE_MATCH.model_copy(
+            update={
+                "map_name": "de_dust2",
+                "engagements": [
+                    EngagementRecord(
+                        round_number=3,
+                        tick=100,
+                        classification="supported_contact",
+                        location="LongA",
+                        side="T",
+                        position_x=0,
+                        position_y=0,
+                        position_z=0,
+                        health=100,
+                        armor=100,
+                        weapon="AK-47",
+                        alive_teammates=3,
+                        alive_enemies=4,
+                        nearest_teammate_distance=300,
+                        nearby_support=True,
+                        moved_distance_5s=100,
+                        effective_team_flashes_5s=1,
+                        was_traded=True,
+                    ),
+                    EngagementRecord(
+                        round_number=6,
+                        tick=200,
+                        classification="isolated_advance",
+                        location="UpperTunnel",
+                        side="T",
+                        position_x=0,
+                        position_y=0,
+                        position_z=0,
+                        health=100,
+                        armor=100,
+                        weapon="AK-47",
+                        alive_teammates=3,
+                        alive_enemies=4,
+                        nearest_teammate_distance=1600,
+                        nearby_support=False,
+                        moved_distance_5s=700,
+                        effective_team_flashes_5s=0,
+                        was_traded=False,
+                    ),
+                ],
+            }
+        )
+
+        cards = build_decision_cards(match)
+
+        self.assertEqual([card.round_number for card in cards], [6, 3])
+
+    def test_decision_evaluation_dataset_passes(self):
+        cases = load_evaluation_cases()
+        result = run_decision_evaluation()
+
+        self.assertGreaterEqual(len(cases), 8)
+        self.assertEqual(result.passed, result.total, result.failures)
+        self.assertEqual(result.accuracy, 1.0)
+
     def test_dust2_knowledge_base_has_unique_valid_entries(self):
         entries = load_knowledge()
 
@@ -463,6 +575,48 @@ class CS2CoachWorkflowTests(unittest.TestCase):
             any("knowledge_retriever:" in step for step in result.execution_trace)
         )
 
+    def test_report_exposes_round_decision_cards(self):
+        engagement = EngagementRecord(
+            round_number=3,
+            tick=100,
+            classification="isolated_advance",
+            location="LongA",
+            side="T",
+            position_x=0,
+            position_y=0,
+            position_z=0,
+            health=100,
+            armor=100,
+            weapon="AK-47",
+            alive_teammates=3,
+            alive_enemies=4,
+            nearest_teammate_distance=1600,
+            nearby_support=False,
+            moved_distance_5s=700,
+            effective_team_flashes_5s=0,
+            was_traded=False,
+        )
+        match = SAMPLE_MATCH.model_copy(
+            update={
+                "match_id": "demo-dust2-cards",
+                "map_name": "de_dust2",
+                "engagements": [engagement],
+            }
+        )
+        self.runtime.add_match(match)
+
+        result = self.runtime.analyze(
+            match_id=match.match_id,
+            question="分析我的接战和孤立前压",
+        )
+
+        self.assertEqual(result.decision_cards[0].round_number, 3)
+        self.assertEqual(result.decision_cards[0].risk_level, "high")
+        self.assertIn("风险", result.answer)
+        self.assertTrue(
+            any("decision_scorer:" in step for step in result.execution_trace)
+        )
+
 
 class CS2CoachApiTests(unittest.TestCase):
     def test_demo_upload_limit_is_500_mb(self):
@@ -498,6 +652,8 @@ class CS2CoachApiTests(unittest.TestCase):
         body = response.json()
         self.assertEqual(body["tools_used"], ["opening_duels", "tradeability"])
         self.assertGreaterEqual(len(body["evidence"]), 1)
+        self.assertIn("decision_cards", body)
+        self.assertIn("knowledge_references", body)
 
     def test_upload_json_rejects_wrong_extension(self):
         response = self.client.post(

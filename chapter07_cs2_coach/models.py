@@ -131,6 +131,32 @@ class KnowledgeReference(BaseModel):
     score: int = Field(ge=0, le=100)
 
 
+class DecisionCard(BaseModel):
+    """一次关键接战的事实、风险与可执行改进建议。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    round_number: int = Field(ge=1, le=100)
+    tick: int = Field(ge=0)
+    location: str = Field(min_length=1, max_length=80)
+    side: Literal["T", "CT"]
+    classification: Literal[
+        "isolated_advance",
+        "isolated_contact",
+        "supported_contact",
+        "uncertain_support",
+        "last_alive",
+    ]
+    risk_score: int = Field(ge=0, le=100)
+    risk_level: Literal["high", "medium", "low"]
+    verdict: Literal["high_risk", "review", "reasonable"]
+    situation: str = Field(min_length=1, max_length=240)
+    factors: list[str] = Field(min_length=1, max_length=10)
+    better_action: str = Field(min_length=1, max_length=400)
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=5)
+    confidence: Literal["high", "medium", "low"]
+
+
 class AnalysisResponse(BaseModel):
     match_id: str
     answer: str
@@ -139,6 +165,7 @@ class AnalysisResponse(BaseModel):
     tools_used: list[str]
     execution_trace: list[str]
     knowledge_references: list[KnowledgeReference] = Field(default_factory=list)
+    decision_cards: list[DecisionCard] = Field(default_factory=list)
     confidence: Literal["high", "medium", "low"]
 
 

@@ -67,5 +67,6 @@ class CS2CoachRuntime:
             tools_used=result.get("tools_used", []),
             execution_trace=result.get("execution_trace", []),
             knowledge_references=result.get("knowledge_references", []),
+            decision_cards=result.get("decision_cards", []),
             confidence=result.get("confidence", "low"),
         )

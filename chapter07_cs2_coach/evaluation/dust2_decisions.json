@@ -1,0 +1,51 @@
+[
+  {
+    "id": "isolated-long-no-flash",
+    "description": "A 大远离队友且持续推进，无闪光支持",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "isolated_advance", "location": "LongA", "side": "T", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "AK-47", "alive_teammates": 3, "alive_enemies": 4, "nearest_teammate_distance": 1650, "nearby_support": false, "moved_distance_5s": 720, "effective_team_flashes_5s": 0, "was_traded": false},
+    "expected_level": "high", "min_score": 85, "max_score": 100
+  },
+  {
+    "id": "advantage-untraded-advance",
+    "description": "人数优势下仍远离队友推进且未被补枪",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "isolated_advance", "location": "UpperTunnel", "side": "T", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "AK-47", "alive_teammates": 3, "alive_enemies": 2, "nearest_teammate_distance": 1250, "nearby_support": false, "moved_distance_5s": 450, "effective_team_flashes_5s": 1, "was_traded": false},
+    "expected_level": "high", "min_score": 70, "max_score": 85
+  },
+  {
+    "id": "isolated-static-contact",
+    "description": "队友支援较远，但死亡前没有强行推进",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "isolated_contact", "location": "Middle", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 900, "nearby_support": false, "moved_distance_5s": 120, "effective_team_flashes_5s": 0, "was_traded": false},
+    "expected_level": "medium", "min_score": 45, "max_score": 60
+  },
+  {
+    "id": "supported-and-traded",
+    "description": "队友近距离支持且死亡后立即完成补枪",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "supported_contact", "location": "BombsiteB", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 300, "nearby_support": true, "moved_distance_5s": 100, "effective_team_flashes_5s": 1, "was_traded": true},
+    "expected_level": "low", "min_score": 0, "max_score": 15
+  },
+  {
+    "id": "supported-but-unsynced",
+    "description": "队友距离近，但人数优势下推进且没有补枪",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "supported_contact", "location": "UnderA", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 3, "alive_enemies": 3, "nearest_teammate_distance": 400, "nearby_support": true, "moved_distance_5s": 420, "effective_team_flashes_5s": 0, "was_traded": false},
+    "expected_level": "medium", "min_score": 40, "max_score": 55
+  },
+  {
+    "id": "missing-support-data",
+    "description": "缺少队友距离时只能给出较低置信度判断",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "uncertain_support", "location": "BDoors", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": null, "nearby_support": false, "moved_distance_5s": 350, "effective_team_flashes_5s": 0, "was_traded": false},
+    "expected_level": "medium", "min_score": 50, "max_score": 65,
+    "expected_confidence": "low"
+  },
+  {
+    "id": "last-alive-context",
+    "description": "最后存活者不能因为没有补枪条件而被判高风险",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "last_alive", "location": "CTSpawn", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 0, "alive_enemies": 2, "nearest_teammate_distance": null, "nearby_support": false, "moved_distance_5s": 500, "effective_team_flashes_5s": 0, "was_traded": false},
+    "expected_level": "low", "min_score": 15, "max_score": 35
+  },
+  {
+    "id": "advance-with-real-support",
+    "description": "即使发生推进，只要队友近、闪光生效并完成补枪，就不应按结果倒推为坏决策",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "isolated_advance", "location": "LongA", "side": "T", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "AK-47", "alive_teammates": 3, "alive_enemies": 4, "nearest_teammate_distance": 700, "nearby_support": true, "moved_distance_5s": 650, "effective_team_flashes_5s": 2, "was_traded": true},
+    "expected_level": "low", "min_score": 25, "max_score": 39
+  }
+]

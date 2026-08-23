@@ -13,7 +13,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from chapter07_cs2_coach.models import Evidence, KnowledgeReference, MatchRecord
+from chapter07_cs2_coach.models import (
+    EngagementRecord,
+    Evidence,
+    KnowledgeReference,
+    MatchRecord,
+)
 
 
 KNOWLEDGE_PATH = Path(__file__).resolve().parent / "knowledge" / "dust2_tactics.json"
@@ -137,9 +142,58 @@ def retrieve_tactical_knowledge(
     ]
 
 
+def retrieve_for_engagement(
+    match: MatchRecord,
+    engagement: EngagementRecord,
+    *,
+    limit: int = 2,
+) -> list[KnowledgeReference]:
+    """只基于单次接战快照检索，避免其他回合污染决策卡依据。"""
+
+    if match.map_name != "de_dust2" or limit <= 0:
+        return []
+    topics = {"engagement"}
+    if engagement.classification.startswith("isolated"):
+        topics.update({"isolation", "trade"})
+    elif engagement.classification == "supported_contact":
+        topics.add("trade")
+    if engagement.effective_team_flashes_5s == 0:
+        topics.add("utility")
+
+    scored: list[tuple[int, TacticalKnowledge, set[str]]] = []
+    for entry in load_knowledge():
+        if entry.map != match.map_name:
+            continue
+        matched_topics = set(entry.topics) & topics
+        matched_location = engagement.location in entry.locations
+        if not (matched_topics or matched_location):
+            continue
+        score = 10 + len(matched_topics) * 6
+        if matched_location:
+            score += 12
+        elif entry.locations:
+            score -= 12
+        if engagement.side in entry.sides:
+            score += 3
+        scored.append((min(score, 100), entry, matched_topics))
+    scored.sort(key=lambda item: (-item[0], item[1].id))
+    return [
+        KnowledgeReference(
+            knowledge_id=entry.id,
+            title=entry.title,
+            principle=f"{entry.principle} 可执行动作：{entry.action}",
+            source=entry.source,
+            matched_topics=sorted(matched_topics),
+            score=score,
+        )
+        for score, entry, matched_topics in scored[:limit]
+    ]
+
+
 __all__ = [
     "KNOWLEDGE_PATH",
     "TacticalKnowledge",
     "load_knowledge",
+    "retrieve_for_engagement",
     "retrieve_tactical_knowledge",
 ]

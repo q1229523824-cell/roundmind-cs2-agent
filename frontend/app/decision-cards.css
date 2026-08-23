@@ -1,0 +1,49 @@
+.decisionSection {
+  margin-top: 38px;
+  border-top: 1px solid var(--line);
+  padding-top: 28px;
+}
+
+.sectionTitle {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+.sectionTitle h3 { font-size: 22px; margin: 8px 0 0; }
+.sectionTitle > span { color: var(--muted); font-size: 11px; max-width: 280px; text-align: right; }
+.decisionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.decisionCard { background: #0f110e; border: 1px solid var(--line); padding: 18px; min-width: 0; }
+.decisionCard.high { border-top: 3px solid var(--danger); }
+.decisionCard.medium { border-top: 3px solid var(--warning); }
+.decisionCard.low { border-top: 3px solid var(--positive); }
+.decisionCard header { display: flex; justify-content: space-between; gap: 15px; border: 0; }
+.decisionCard header span,
+.decisionCard footer { color: var(--muted); font: 9px var(--font-mono), monospace; letter-spacing: .08em; }
+.decisionCard header strong { display: block; margin-top: 6px; font-size: 14px; }
+.riskScore b { font-size: 29px; }
+.riskScore small { color: var(--muted); }
+.riskTrack { height: 3px; background: #292d27; margin: 14px 0; }
+.riskTrack i { display: block; height: 100%; background: var(--warning); }
+.decisionCard.high .riskTrack i { background: var(--danger); }
+.decisionCard.low .riskTrack i { background: var(--positive); }
+.situation { color: #d7d9cf; font-size: 12px; }
+.decisionCard ul { padding-left: 17px; color: #aeb0a7; font-size: 11px; line-height: 1.65; min-height: 54px; }
+.better { font-size: 11px; line-height: 1.65; padding: 11px; background: rgba(217, 255, 67, .05); }
+.better b { display: block; color: var(--accent); font-size: 9px; letter-spacing: .1em; margin-bottom: 4px; }
+.decisionCard footer { display: flex; min-height: 0; align-items: center; justify-content: space-between; gap: 10px; overflow-wrap: anywhere; }
+.knowledgePanel { margin-top: 18px; }
+.knowledgePanel ol { font-family: inherit; }
+.knowledgePanel li { margin: 12px 0; }
+.knowledgePanel li b { color: #dfe1d7; font-size: 12px; }
+.knowledgePanel li p { margin: 5px 0; color: #aaada4; font-size: 11px; }
+.knowledgePanel li small { color: var(--accent); }
+
+@media (max-width: 900px) { .decisionGrid { grid-template-columns: 1fr; } }
+@media (max-width: 620px) {
+  .sectionTitle { align-items: flex-start; flex-direction: column; }
+  .sectionTitle > span { text-align: left; }
+  .decisionCard footer { flex-direction: column; }
+}

@@ -39,12 +39,39 @@ type Evidence = {
   suggestion: string;
 };
 
+type KnowledgeReference = {
+  knowledge_id: string;
+  title: string;
+  principle: string;
+  source: string;
+  matched_topics: string[];
+  score: number;
+};
+
+type DecisionCard = {
+  round_number: number;
+  tick: number;
+  location: string;
+  side: "T" | "CT";
+  classification: string;
+  risk_score: number;
+  risk_level: "high" | "medium" | "low";
+  verdict: "high_risk" | "review" | "reasonable";
+  situation: string;
+  factors: string[];
+  better_action: string;
+  knowledge_ids: string[];
+  confidence: "high" | "medium" | "low";
+};
+
 type AgentAnalysis = {
   answer: string;
   summary: Record<string, string | number>;
   evidence: Array<Omit<Evidence, "rounds"> & { round_numbers: number[] }>;
   tools_used: string[];
   execution_trace: string[];
+  knowledge_references: KnowledgeReference[];
+  decision_cards: DecisionCard[];
   confidence: "high" | "medium" | "low";
 };
 
@@ -271,6 +298,8 @@ export default function Home() {
     "reporter · 生成中文训练建议",
   ];
   const trace = remoteAnalysis?.execution_trace ?? localTrace;
+  const decisionCards = remoteAnalysis?.decision_cards ?? [];
+  const knowledgeReferences = remoteAnalysis?.knowledge_references ?? [];
 
   useEffect(() => {
     fetch("/api/config")
@@ -422,7 +451,7 @@ export default function Home() {
       <p className="eyebrow">EVIDENCE-BASED MATCH REVIEW</p>
       <h1>别只看战绩。<br/><em>找出真正丢分的习惯。</em></h1>
       <p className="intro">RoundMind 会选择合适的分析工具，追踪关键回合，并把冷冰冰的数据转化成下一场就能执行的训练重点。</p>
-      <div className="heroStats"><div><strong>6</strong><span>分析工具</span></div><div><strong>{MAX_DEMO_MB}MB</strong><span>Demo 上限</span></div><div><strong>0</strong><span>默认模型费用</span></div></div>
+      <div className="heroStats"><div><strong>6</strong><span>分析工具</span></div><div><strong>{MAX_DEMO_MB}MB</strong><span>Demo 上限</span></div><div><strong>8</strong><span>决策评测场景</span></div><div><strong>0</strong><span>默认模型费用</span></div></div>
     </section>
     <section className="workspace">
       <aside className="controls">
@@ -446,6 +475,7 @@ export default function Home() {
         <header><div><p className="eyebrow">02 / COACH REPORT</p><h2>{match.player_name} · {match.map_name}</h2></div><span className="confidence">置信度 {confidence}</span></header>
         <div className="metrics"><div><span>SCORE</span><strong>{stats.score}</strong></div><div><span>K / D / A</span><strong>{stats.kills} / {stats.deaths} / {stats.assists}</strong></div><div><span>ADR</span><strong>{stats.adr}</strong></div><div><span>KAST</span><strong>{stats.kast}%</strong></div><div><span>ROUNDS</span><strong>{stats.rounds}</strong></div></div>
         <div className="reportGrid"><section><h3>教练结论</h3><p className="lead">{remoteAnalysis?.answer || `${match.player_name} 在 ${match.map_name} 打出 ${stats.kills}/${stats.deaths}/${stats.assists}，ADR ${stats.adr}，KAST ${stats.kast}%。`}</p>{evidence.map((item, index) => <div className="finding" key={item.finding}><b>{index + 1}. {item.finding}</b><p>证据：{item.metric}；相关回合：{item.rounds.map((round) => `R${round}`).join("、") || "全场统计"}。</p><p>训练建议：{item.suggestion}</p></div>)}<p className="focus">下一场先只跟踪最高优先级问题，避免一次同时修改太多习惯。</p></section><aside><h3>证据卡片</h3>{evidence.map((item) => <div className={`evidence ${item.severity}`} key={item.metric}><span>{item.severity.toUpperCase()}</span><p>{item.metric}</p><i>{item.rounds.map((round) => `R${round}`).join(" · ") || "全场统计"}</i></div>)}</aside></div>
+        {decisionCards.length > 0 && <section className="decisionSection"><div className="sectionTitle"><div><p className="eyebrow">03 / DECISION REVIEW</p><h3>逐回合接战决策卡</h3></div><span>风险描述决策条件，不用死亡结果倒推对错</span></div><div className="decisionGrid">{decisionCards.slice(0, 6).map((card) => <article className={`decisionCard ${card.risk_level}`} key={`${card.round_number}-${card.tick}`}><header><div><span>R{card.round_number} · {card.side}</span><strong>{card.location}</strong></div><div className="riskScore"><b>{card.risk_score}</b><small>/100</small></div></header><div className="riskTrack" aria-label={`风险分 ${card.risk_score}`}><i style={{ width: `${card.risk_score}%` }}/></div><p className="situation">{card.situation}</p><ul>{card.factors.slice(0, 3).map((factor) => <li key={factor}>{factor}</li>)}</ul><p className="better"><b>更优动作</b>{card.better_action}</p><footer><span>置信度 {card.confidence.toUpperCase()}</span><span>{card.knowledge_ids.join(" · ") || "仅比赛事实"}</span></footer></article>)}</div>{knowledgeReferences.length > 0 && <details className="knowledgePanel"><summary>查看本次引用的 {knowledgeReferences.length} 条 Dust2 战术知识</summary><ol>{knowledgeReferences.map((item) => <li key={item.knowledge_id}><b>[{item.knowledge_id}] {item.title}</b><p>{item.principle}</p><small>{item.source} · 匹配分 {item.score}</small></li>)}</ol></details>}</section>}
         <details><summary>查看 Agent 执行轨迹</summary><ol>{trace.map((step) => <li key={step}>{step}</li>)}</ol></details>
       </article>
     </section>
