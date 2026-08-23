@@ -66,6 +66,14 @@ class EngagementRecord(BaseModel):
     moved_distance_5s: int = Field(ge=0, le=100000)
     effective_team_flashes_5s: int = Field(ge=0, le=20)
     was_traded: bool
+    round_elapsed_seconds: float | None = Field(default=None, ge=0, le=3600)
+    bomb_state: Literal[
+        "not_planted", "planted", "defused", "exploded", "unknown"
+    ] = "unknown"
+    bombsite: Literal["A", "B"] | None = None
+    seconds_since_bomb_plant: float | None = Field(default=None, ge=0, le=300)
+    active_smokes_nearby: int | None = Field(default=None, ge=0, le=20)
+    smoke_between_player_and_nearest_teammate: bool | None = None
 
 
 class MatchRecord(BaseModel):

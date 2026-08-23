@@ -50,6 +50,20 @@ def score_engagement(match: MatchRecord, item: EngagementRecord) -> DecisionCard
         score -= 8
         factors.append(f"最近队友约 {distance} 单位，空间距离具备支援可能")
 
+    smoke_between = item.smoke_between_player_and_nearest_teammate
+    if smoke_between is True:
+        score += 12
+        confidence = "medium"
+        factors.append("活跃烟雾可能切断玩家与最近队友的补枪线路")
+    elif smoke_between is None and item.nearby_support:
+        confidence = "medium"
+        factors.append("队友虽近，但缺少烟雾遮挡数据，无法确认真实补枪视线")
+    elif item.active_smokes_nearby:
+        factors.append(
+            f"附近识别到 {item.active_smokes_nearby} 颗活跃烟雾，"
+            "未落在最近队友连线代理上"
+        )
+
     if item.moved_distance_5s >= 600:
         score += 10
         factors.append(f"死亡前五秒移动 {item.moved_distance_5s} 单位，持续进入新空间")
@@ -73,6 +87,22 @@ def score_engagement(match: MatchRecord, item: EngagementRecord) -> DecisionCard
     elif item.was_traded:
         score -= 12
         factors.append("死亡后完成补枪，接战具备一定交换价值")
+
+    if item.bomb_state == "planted":
+        timing = (
+            f"，已下包约 {item.seconds_since_bomb_plant:g} 秒"
+            if item.seconds_since_bomb_plant is not None
+            else ""
+        )
+        factors.append(
+            f"炸弹已在 {item.bombsite or '未知'} 点安放{timing}，"
+            "需要按回防/守包语境复核"
+        )
+    elif item.bomb_state in {"defused", "exploded"}:
+        factors.append("该快照位于炸弹结算阶段附近，常规接战评分仅供复核")
+
+    if item.round_elapsed_seconds is not None:
+        factors.append(f"快照距冻结时间结束约 {item.round_elapsed_seconds:g} 秒")
 
     score = max(0, min(round(score), 100))
     risk_level = "high" if score >= 70 else "medium" if score >= 40 else "low"

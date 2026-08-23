@@ -38,6 +38,11 @@ ENGAGEMENT_WINDOW_TICKS = 5 * 64
 NEARBY_SUPPORT_DISTANCE = 750
 ISOLATED_DISTANCE = 1000
 ACTIVE_MOVE_DISTANCE = 300
+TICKS_PER_SECOND = 64
+SMOKE_FALLBACK_LIFETIME_TICKS = 20 * TICKS_PER_SECOND
+SMOKE_OBSTRUCTION_RADIUS = 180
+SMOKE_VERTICAL_TOLERANCE = 250
+NEARBY_SMOKE_DISTANCE = 1200
 
 
 def _default_parser_factory(path: str) -> DemoParserProtocol:
@@ -95,6 +100,20 @@ def _number(row: Mapping[str, Any], *keys: str, default: float = 0.0) -> float:
         except (TypeError, ValueError):
             continue
     return default
+
+
+def _optional_event(
+    parser: DemoParserProtocol,
+    event_name: str,
+    *,
+    other: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """读取增强事件；旧 Demo 或测试解析器不支持时返回“不可用”。"""
+
+    try:
+        return _records(parser.parse_event(event_name, other=other)), True
+    except Exception:
+        return [], False
 
 
 def _round_index(row: Mapping[str, Any]) -> int:
@@ -249,6 +268,21 @@ class CS2DemoMatchParser:
             freeze_ends = _records(
                 parser.parse_event("round_freeze_end", other=extra_other)
             )
+            bomb_plants, plants_available = _optional_event(
+                parser, "bomb_planted", other=extra_other
+            )
+            bomb_defuses, defuses_available = _optional_event(
+                parser, "bomb_defused", other=extra_other
+            )
+            bomb_explosions, explosions_available = _optional_event(
+                parser, "bomb_exploded", other=extra_other
+            )
+            smoke_detonations, smoke_detonations_available = _optional_event(
+                parser, "smokegrenade_detonate", other=extra_other
+            )
+            smoke_expirations, smoke_expirations_available = _optional_event(
+                parser, "smokegrenade_expired", other=extra_other
+            )
         except DemoParseError:
             raise
         except Exception as error:
@@ -366,6 +400,17 @@ class CS2DemoMatchParser:
             freeze_ends=freeze_ends,
             player=selected,
             rounds=rounds,
+            bomb_plants=bomb_plants,
+            bomb_defuses=bomb_defuses,
+            bomb_explosions=bomb_explosions,
+            bomb_events_available=(
+                plants_available and defuses_available and explosions_available
+            ),
+            smoke_detonations=smoke_detonations,
+            smoke_expirations=smoke_expirations,
+            smoke_events_available=(
+                smoke_detonations_available and smoke_expirations_available
+            ),
         )
         with path.open("rb") as demo_file:
             digest = hashlib.sha256(demo_file.read(1024 * 1024)).hexdigest()[:12]
@@ -500,6 +545,13 @@ class CS2DemoMatchParser:
         freeze_ends: list[dict[str, Any]],
         player: DemoPlayerOption,
         rounds: list[dict[str, Any]],
+        bomb_plants: list[dict[str, Any]],
+        bomb_defuses: list[dict[str, Any]],
+        bomb_explosions: list[dict[str, Any]],
+        bomb_events_available: bool,
+        smoke_detonations: list[dict[str, Any]],
+        smoke_expirations: list[dict[str, Any]],
+        smoke_events_available: bool,
     ) -> list[EngagementRecord]:
         player_deaths = [
             item
@@ -579,6 +631,14 @@ class CS2DemoMatchParser:
                 for teammate in teammates
             ]
             nearest = min(distances) if distances else None
+            nearest_teammate = (
+                min(
+                    teammates,
+                    key=lambda teammate: math.dist(position, cls._position(teammate)),
+                )
+                if teammates
+                else None
+            )
             start_row = next(
                 (
                     row
@@ -599,6 +659,53 @@ class CS2DemoMatchParser:
                 alive_teammates=len(teammates),
                 nearest_teammate_distance=nearest,
                 moved_distance_5s=moved,
+            )
+            round_elapsed_seconds = (
+                round(
+                    max(0, snapshot_tick - freeze_by_round[round_index])
+                    / TICKS_PER_SECOND,
+                    1,
+                )
+                if round_index in freeze_by_round
+                else None
+            )
+            bomb_state, bombsite, seconds_since_plant = cls._bomb_context(
+                round_index=round_index,
+                snapshot_tick=snapshot_tick,
+                plants=bomb_plants,
+                defuses=bomb_defuses,
+                explosions=bomb_explosions,
+                available=bomb_events_available,
+            )
+            active_smokes = (
+                cls._active_smokes(
+                    round_index=round_index,
+                    snapshot_tick=snapshot_tick,
+                    detonations=smoke_detonations,
+                    expirations=smoke_expirations,
+                )
+                if smoke_events_available
+                else None
+            )
+            active_smokes_nearby = (
+                sum(
+                    math.dist(position, cls._position(smoke)) <= NEARBY_SMOKE_DISTANCE
+                    for smoke in active_smokes
+                )
+                if active_smokes is not None
+                else None
+            )
+            smoke_between = (
+                any(
+                    cls._smoke_blocks_segment(
+                        position,
+                        cls._position(nearest_teammate),
+                        cls._position(smoke),
+                    )
+                    for smoke in active_smokes
+                )
+                if active_smokes is not None and nearest_teammate is not None
+                else None
             )
             result.append(
                 EngagementRecord(
@@ -627,16 +734,125 @@ class CS2DemoMatchParser:
                         team=player_team,
                     ),
                     was_traded=was_traded,
+                    round_elapsed_seconds=round_elapsed_seconds,
+                    bomb_state=bomb_state,
+                    bombsite=bombsite,
+                    seconds_since_bomb_plant=seconds_since_plant,
+                    active_smokes_nearby=active_smokes_nearby,
+                    smoke_between_player_and_nearest_teammate=smoke_between,
                 )
             )
         return result
 
     @staticmethod
+    def _bomb_context(
+        *,
+        round_index: int,
+        snapshot_tick: int,
+        plants: Iterable[Mapping[str, Any]],
+        defuses: Iterable[Mapping[str, Any]],
+        explosions: Iterable[Mapping[str, Any]],
+        available: bool,
+    ) -> tuple[str, str | None, float | None]:
+        if not available:
+            return "unknown", None, None
+        events = [
+            ("planted", item)
+            for item in plants
+            if _round_index(item) == round_index
+            and _integer(item, "tick") <= snapshot_tick
+        ]
+        events.extend(
+            ("defused", item)
+            for item in defuses
+            if _round_index(item) == round_index
+            and _integer(item, "tick") <= snapshot_tick
+        )
+        events.extend(
+            ("exploded", item)
+            for item in explosions
+            if _round_index(item) == round_index
+            and _integer(item, "tick") <= snapshot_tick
+        )
+        if not events:
+            return "not_planted", None, None
+        state, latest = max(events, key=lambda pair: _integer(pair[1], "tick"))
+        plant = max(
+            (
+                item for item in plants
+                if _round_index(item) == round_index
+                and _integer(item, "tick") <= snapshot_tick
+            ),
+            key=lambda item: _integer(item, "tick"),
+            default=None,
+        )
+        site_value = _integer(plant or latest, "site", default=-1)
+        bombsite = "A" if site_value == 96 else "B" if site_value == 97 else None
+        seconds_since_plant = (
+            round((snapshot_tick - _integer(plant, "tick")) / TICKS_PER_SECOND, 1)
+            if plant is not None
+            else None
+        )
+        return state, bombsite, seconds_since_plant
+
+    @staticmethod
+    def _active_smokes(
+        *,
+        round_index: int,
+        snapshot_tick: int,
+        detonations: Iterable[Mapping[str, Any]],
+        expirations: Iterable[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        expiry_by_entity = {
+            (_round_index(item), _integer(item, "entityid")): _integer(item, "tick")
+            for item in expirations
+        }
+        active: list[dict[str, Any]] = []
+        for detonation in detonations:
+            if _round_index(detonation) != round_index:
+                continue
+            start_tick = _integer(detonation, "tick")
+            expiry_tick = expiry_by_entity.get(
+                (round_index, _integer(detonation, "entityid")),
+                start_tick + SMOKE_FALLBACK_LIFETIME_TICKS,
+            )
+            if start_tick <= snapshot_tick < expiry_tick:
+                active.append(dict(detonation))
+        return active
+
+    @staticmethod
+    def _smoke_blocks_segment(
+        start: tuple[float, float, float],
+        end: tuple[float, float, float],
+        smoke: tuple[float, float, float],
+    ) -> bool:
+        """二维线段与烟雾球的保守代理；不等价于地图碰撞或真实视线。"""
+
+        if abs(smoke[2] - ((start[2] + end[2]) / 2)) > SMOKE_VERTICAL_TOLERANCE:
+            return False
+        dx = end[0] - start[0]
+        dy = end[1] - start[1]
+        length_squared = dx * dx + dy * dy
+        if length_squared == 0:
+            closest_x, closest_y = start[0], start[1]
+        else:
+            ratio = (
+                (smoke[0] - start[0]) * dx + (smoke[1] - start[1]) * dy
+            ) / length_squared
+            ratio = max(0.0, min(1.0, ratio))
+            closest_x = start[0] + ratio * dx
+            closest_y = start[1] + ratio * dy
+        return (
+            math.hypot(smoke[0] - closest_x, smoke[1] - closest_y)
+            <= SMOKE_OBSTRUCTION_RADIUS
+        )
+
+    @staticmethod
     def _position(row: Mapping[str, Any]) -> tuple[float, float, float]:
         return (
-            _number(row, "X"),
-            _number(row, "Y"),
-            _number(row, "Z"),
+            _number(row, "X", "x"),
+            _number(row, "Y", "y"),
+            _number(row, "Z", "z"),
         )
 
     @staticmethod

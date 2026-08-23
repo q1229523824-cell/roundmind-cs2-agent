@@ -206,6 +206,46 @@ class FakeDemoParser:
         ]
 
 
+class ContextAwareDemoParser(FakeDemoParser):
+    """提供炸弹与烟雾事件，验证增强接战快照。"""
+
+    def __init__(self, path: str):
+        super().__init__(path)
+        self.events.update(
+            {
+                "bomb_planted": [
+                    {
+                        "tick": 1400,
+                        "total_rounds_played": 1,
+                        "site": 96,
+                    }
+                ],
+                "bomb_defused": [],
+                "bomb_exploded": [],
+                "smokegrenade_detonate": [
+                    {
+                        "tick": 1450,
+                        "total_rounds_played": 1,
+                        "entityid": 10,
+                        "x": 450,
+                        "y": 0,
+                        "z": 0,
+                    }
+                ],
+                "smokegrenade_expired": [
+                    {
+                        "tick": 1700,
+                        "total_rounds_played": 1,
+                        "entityid": 10,
+                        "x": 450,
+                        "y": 0,
+                        "z": 0,
+                    }
+                ],
+            }
+        )
+
+
 class InlineExecutor:
     def submit(self, function, *args, **kwargs):
         future = Future()
@@ -332,6 +372,42 @@ class CS2CoachToolTests(unittest.TestCase):
         self.assertEqual(supported_card.risk_level, "low")
         self.assertLess(supported_card.risk_score, 20)
         self.assertIn("dust2-isolation-001", isolated_card.knowledge_ids)
+
+    def test_smoke_obstruction_reduces_confidence_in_nearby_support(self):
+        engagement = EngagementRecord(
+            round_number=3,
+            tick=100,
+            classification="supported_contact",
+            location="LongA",
+            side="T",
+            position_x=0,
+            position_y=0,
+            position_z=0,
+            health=100,
+            armor=100,
+            weapon="AK-47",
+            alive_teammates=3,
+            alive_enemies=4,
+            nearest_teammate_distance=300,
+            nearby_support=True,
+            moved_distance_5s=100,
+            effective_team_flashes_5s=1,
+            was_traded=False,
+            smoke_between_player_and_nearest_teammate=False,
+        )
+        blocked = engagement.model_copy(
+            update={"smoke_between_player_and_nearest_teammate": True}
+        )
+        match = SAMPLE_MATCH.model_copy(
+            update={"map_name": "de_dust2", "engagements": [engagement, blocked]}
+        )
+
+        clear_card = score_engagement(match, engagement)
+        blocked_card = score_engagement(match, blocked)
+
+        self.assertEqual(blocked_card.risk_score, clear_card.risk_score + 12)
+        self.assertEqual(blocked_card.confidence, "medium")
+        self.assertTrue(any("烟雾" in factor for factor in blocked_card.factors))
 
     def test_decision_cards_are_sorted_by_risk(self):
         match = SAMPLE_MATCH.model_copy(
@@ -552,6 +628,35 @@ class CS2DemoParserTests(unittest.TestCase):
         self.assertEqual(match.engagements[0].location, "TestArea")
         self.assertEqual(match.engagements[0].moved_distance_5s, 400)
         self.assertEqual(match.engagements[0].effective_team_flashes_5s, 1)
+        self.assertEqual(match.engagements[0].bomb_state, "unknown")
+        self.assertIsNone(
+            match.engagements[0].smoke_between_player_and_nearest_teammate
+        )
+
+    def test_context_events_enrich_engagement_snapshot(self):
+        parser = CS2DemoMatchParser(ContextAwareDemoParser)
+        with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:
+            handle.write(b"PBDEMS2\x00fake-demo")
+            path = Path(handle.name)
+        try:
+            match = parser.parse(path, "Learner", "1")
+        finally:
+            path.unlink(missing_ok=True)
+
+        engagement = match.engagements[0]
+        self.assertEqual(engagement.round_elapsed_seconds, 6.2)
+        self.assertEqual(engagement.bomb_state, "planted")
+        self.assertEqual(engagement.bombsite, "A")
+        self.assertEqual(engagement.seconds_since_bomb_plant, 1.5)
+        self.assertEqual(engagement.active_smokes_nearby, 1)
+        self.assertTrue(engagement.smoke_between_player_and_nearest_teammate)
+
+    def test_smoke_segment_proxy_respects_distance_and_height(self):
+        blocks = CS2DemoMatchParser._smoke_blocks_segment
+
+        self.assertTrue(blocks((0, 0, 0), (500, 0, 0), (250, 100, 0)))
+        self.assertFalse(blocks((0, 0, 0), (500, 0, 0), (250, 250, 0)))
+        self.assertFalse(blocks((0, 0, 0), (500, 0, 0), (250, 0, 400)))
 
     def test_player_names_can_be_discovered_before_analysis(self):
         with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:
