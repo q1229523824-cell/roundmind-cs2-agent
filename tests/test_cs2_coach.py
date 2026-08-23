@@ -9,6 +9,11 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from chapter07_cs2_coach.api import MAX_DEMO_BYTES, MAX_DEMO_MB, create_app
+from chapter07_cs2_coach.annotations import (
+    HumanAnnotation,
+    create_annotation_package,
+    evaluate_annotations,
+)
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
 from chapter07_cs2_coach.decision_scoring import build_decision_cards, score_engagement
@@ -217,6 +222,71 @@ class DuplicateNameDemoParser(FakeDemoParser):
 
 
 class CS2CoachToolTests(unittest.TestCase):
+    @staticmethod
+    def _annotation_match() -> MatchRecord:
+        cases = load_evaluation_cases()
+        engagements = [
+            case.engagement.model_copy(
+                update={"round_number": index, "tick": index * 1000}
+            )
+            for index, case in enumerate(cases, start=1)
+        ]
+        return MatchRecord.model_validate(
+            {
+                "match_id": "private-real-match-id",
+                "player_name": "PrivatePlayerName",
+                "player_steamid": "76561198000000000",
+                "map_name": "de_dust2",
+                "team_name": "Private Team",
+                "opponent_name": "Opponent Team",
+                "team_score": 0,
+                "opponent_score": len(cases),
+                "rounds": [
+                    {
+                        "number": index,
+                        "side": engagement.side,
+                        "won": False,
+                        "died": True,
+                    }
+                    for index, engagement in enumerate(engagements, start=1)
+                ],
+                "engagements": [item.model_dump() for item in engagements],
+            }
+        )
+
+    def test_annotation_package_is_stratified_and_anonymous(self):
+        package = create_annotation_package(self._annotation_match(), limit=6)
+        serialized = package.model_dump_json()
+
+        self.assertEqual(len(package.cases), 6)
+        self.assertTrue(any(item.prediction.risk_level == "high" for item in package.cases))
+        self.assertTrue(any(item.prediction.risk_level == "low" for item in package.cases))
+        self.assertEqual(len({item.case_id for item in package.cases}), 6)
+        self.assertNotIn("PrivatePlayerName", serialized)
+        self.assertNotIn("76561198000000000", serialized)
+        self.assertNotIn("private-real-match-id", serialized)
+
+    def test_annotation_metrics_ignore_uncertain_human_labels(self):
+        package = create_annotation_package(self._annotation_match(), limit=6)
+        first, second, third = package.cases[:3]
+        first.human_annotation = HumanAnnotation(verdict=first.prediction.verdict)
+        second.human_annotation = HumanAnnotation(
+            verdict=(
+                "reasonable"
+                if second.prediction.verdict != "reasonable"
+                else "high_risk"
+            )
+        )
+        third.human_annotation = HumanAnnotation(verdict="uncertain")
+
+        metrics = evaluate_annotations(package)
+
+        self.assertEqual(metrics.labeled_cases, 3)
+        self.assertEqual(metrics.scorable_cases, 2)
+        self.assertEqual(metrics.uncertain_cases, 1)
+        self.assertEqual(metrics.exact_agreement, 0.5)
+        self.assertEqual(metrics.coverage, 0.5)
+
     def test_decision_risk_distinguishes_isolation_from_real_support(self):
         base = {
             "round_number": 3,

@@ -131,6 +131,24 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 成功补枪、数据缺失与最后存活者。运行 `python -m chapter07_cs2_coach.evaluation` 可查看准确率。
 它目前是工程回归基线，不代表真实教练标注的泛化效果；下一步应加入来自真实 Demo 的盲测样本。
 
+真实评测通过 `annotation_cli` 单独进行，不依赖网页。导出器会分层选择高风险、阈值边界、低风险对照和
+低置信度场景，并删除昵称、SteamID、比赛 ID 与 Demo 路径：
+
+```powershell
+python -m chapter07_cs2_coach.annotation_cli export `
+  --demo "D:\path\match.dem" `
+  --player-name "Player" `
+  --player-steamid "7656..." `
+  --output ".agent_data\annotations\match-v1.json" `
+  --limit 8
+
+python -m chapter07_cs2_coach.annotation_cli evaluate `
+  --input ".agent_data\annotations\match-v1.json"
+```
+
+标注尚未完成时，指标会返回 `null`，不会把系统预测冒充人工真值。`.agent_data` 已被 Git 忽略，
+真实标注包不会随代码提交或部署。
+
 ## 当前边界
 
 - 玩家昵称与 SteamID 由 Demo 自动提取，同名玩家也能稳定区分；
