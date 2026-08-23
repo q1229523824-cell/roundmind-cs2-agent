@@ -11,10 +11,10 @@ from pydantic import ValidationError
 from chapter07_cs2_coach.api import MAX_DEMO_BYTES, MAX_DEMO_MB, create_app
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
-from chapter07_cs2_coach.models import MatchRecord
+from chapter07_cs2_coach.models import EngagementRecord, MatchRecord
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
-from chapter07_cs2_coach.tools import get_match_summary
+from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
 
 
 class FakeDemoParser:
@@ -100,6 +100,17 @@ class FakeDemoParser:
                     "user_steamid": "2",
                     "user_team_name": "CT",
                     "blind_duration": 2.5,
+                },
+                {
+                    "tick": 1480,
+                    "total_rounds_played": 1,
+                    "attacker_name": "Teammate",
+                    "attacker_steamid": "3",
+                    "attacker_team_name": "CT",
+                    "user_name": "Enemy",
+                    "user_steamid": "2",
+                    "user_team_name": "TERRORIST",
+                    "blind_duration": 1.5,
                 }
             ],
         }
@@ -118,6 +129,51 @@ class FakeDemoParser:
         return self.events[event_name]
 
     def parse_ticks(self, wanted_props, *, ticks):
+        if "X" in wanted_props:
+            rows = []
+            for tick in ticks:
+                second_half = tick >= 1000
+                team = "CT" if second_half else "TERRORIST"
+                enemy_team = "TERRORIST" if second_half else "CT"
+                rows.extend(
+                    [
+                        {
+                            "tick": tick,
+                            "steamid": "1",
+                            "name": "Learner",
+                            "team_name": team,
+                            "is_alive": True,
+                            "X": 400 if tick % 1000 > 400 else 0,
+                            "Y": 0,
+                            "Z": 0,
+                            "health": 80,
+                            "armor_value": 90,
+                            "last_place_name": "TestArea",
+                            "active_weapon_name": "AK-47",
+                        },
+                        {
+                            "tick": tick,
+                            "steamid": "3",
+                            "name": "Teammate",
+                            "team_name": team,
+                            "is_alive": True,
+                            "X": 500,
+                            "Y": 0,
+                            "Z": 0,
+                        },
+                        {
+                            "tick": tick,
+                            "steamid": "2",
+                            "name": "Enemy",
+                            "team_name": enemy_team,
+                            "is_alive": True,
+                            "X": 800,
+                            "Y": 0,
+                            "Z": 0,
+                        },
+                    ]
+                )
+            return rows
         return [
             {
                 "tick": 100,
@@ -167,6 +223,65 @@ class CS2CoachToolTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             MatchRecord.model_validate(payload)
 
+    def test_engagement_tool_separates_isolation_from_failed_trade(self):
+        base = {
+            "tick": 100,
+            "location": "LongA",
+            "side": "T",
+            "position_x": 0,
+            "position_y": 0,
+            "position_z": 0,
+            "health": 100,
+            "armor": 100,
+            "weapon": "AK-47",
+            "alive_teammates": 2,
+            "alive_enemies": 3,
+            "moved_distance_5s": 500,
+            "effective_team_flashes_5s": 0,
+            "was_traded": False,
+        }
+        match = SAMPLE_MATCH.model_copy(
+            update={
+                "engagements": [
+                    EngagementRecord(
+                        **base,
+                        round_number=3,
+                        classification="isolated_advance",
+                        nearest_teammate_distance=1300,
+                        nearby_support=False,
+                    ),
+                    EngagementRecord(
+                        **base,
+                        round_number=6,
+                        classification="isolated_advance",
+                        nearest_teammate_distance=1500,
+                        nearby_support=False,
+                    ),
+                    EngagementRecord(
+                        **base,
+                        round_number=7,
+                        classification="supported_contact",
+                        nearest_teammate_distance=300,
+                        nearby_support=True,
+                    ),
+                    EngagementRecord(
+                        **base,
+                        round_number=10,
+                        classification="supported_contact",
+                        nearest_teammate_distance=400,
+                        nearby_support=True,
+                    ),
+                ]
+            }
+        )
+
+        evidence = analyze_engagement_decisions(match)
+
+        self.assertEqual(len(evidence), 2)
+        self.assertEqual(evidence[0].severity, "high")
+        self.assertEqual(evidence[0].round_numbers, [3, 6])
+        self.assertIn("附近已有队友", evidence[1].finding)
+
 
 class CS2DemoParserTests(unittest.TestCase):
     def setUp(self):
@@ -190,6 +305,11 @@ class CS2DemoParserTests(unittest.TestCase):
         self.assertEqual(match.rounds[0].enemies_flashed, 1)
         self.assertEqual(match.rounds[1].utility_damage, 24)
         self.assertTrue(match.rounds[1].was_traded)
+        self.assertEqual(len(match.engagements), 1)
+        self.assertEqual(match.engagements[0].classification, "supported_contact")
+        self.assertEqual(match.engagements[0].location, "TestArea")
+        self.assertEqual(match.engagements[0].moved_distance_5s, 400)
+        self.assertEqual(match.engagements[0].effective_team_flashes_5s, 1)
 
     def test_player_names_can_be_discovered_before_analysis(self):
         with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:
@@ -248,8 +368,8 @@ class CS2CoachWorkflowTests(unittest.TestCase):
             question="请综合复盘并找出最需要改进的问题",
         )
 
-        self.assertEqual(len(result.tools_used), 5)
-        self.assertLessEqual(len(result.tools_used), 5)
+        self.assertEqual(len(result.tools_used), 6)
+        self.assertLessEqual(len(result.tools_used), 6)
         self.assertTrue(any(item.severity == "high" for item in result.evidence))
         self.assertEqual(result.confidence, "high")
         self.assertTrue(result.execution_trace[-1].startswith("reporter:"))
@@ -257,6 +377,14 @@ class CS2CoachWorkflowTests(unittest.TestCase):
     def test_unknown_match_is_rejected(self):
         with self.assertRaises(KeyError):
             self.runtime.analyze(match_id="missing", question="复盘")
+
+    def test_engagement_question_selects_situational_tool(self):
+        result = self.runtime.analyze(
+            match_id=SAMPLE_MATCH.match_id,
+            question="分析我的接战局势和队友距离",
+        )
+
+        self.assertEqual(result.tools_used, ["engagements"])
 
 
 class CS2CoachApiTests(unittest.TestCase):

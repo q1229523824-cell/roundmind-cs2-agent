@@ -422,7 +422,7 @@ export default function Home() {
       <p className="eyebrow">EVIDENCE-BASED MATCH REVIEW</p>
       <h1>别只看战绩。<br/><em>找出真正丢分的习惯。</em></h1>
       <p className="intro">RoundMind 会选择合适的分析工具，追踪关键回合，并把冷冰冰的数据转化成下一场就能执行的训练重点。</p>
-      <div className="heroStats"><div><strong>5</strong><span>分析工具</span></div><div><strong>{MAX_DEMO_MB}MB</strong><span>Demo 上限</span></div><div><strong>0</strong><span>默认模型费用</span></div></div>
+      <div className="heroStats"><div><strong>6</strong><span>分析工具</span></div><div><strong>{MAX_DEMO_MB}MB</strong><span>Demo 上限</span></div><div><strong>0</strong><span>默认模型费用</span></div></div>
     </section>
     <section className="workspace">
       <aside className="controls">
@@ -439,7 +439,7 @@ export default function Home() {
         {error && <p className="error">{error}</p>}
         <label htmlFor="question">你最想弄清什么？</label>
         <textarea id="question" rows={5} value={question} onChange={(event) => setQuestion(event.target.value)}/>
-        <div className="chips"><button onClick={() => setQuestion("为什么我杀了很多人还是输了？")}>击杀没转化？</button><button onClick={() => setQuestion("分析我的首杀、首死和补枪问题。")}>首轮交火</button><button onClick={() => setQuestion("我的道具和经济决策有什么问题？")}>道具与经济</button></div>
+        <div className="chips"><button onClick={() => setQuestion("为什么我杀了很多人还是输了？")}>击杀没转化？</button><button onClick={() => setQuestion("分析我的首杀、首死和补枪问题。")}>首轮交火</button><button onClick={() => setQuestion("我的道具和经济决策有什么问题？")}>道具与经济</button><button onClick={() => setQuestion("分析我的接战局势、队友距离和孤立前压决策。")}>接战决策</button></div>
         <button className="primary" onClick={runAgent}>运行复盘 Agent <span>↗</span></button>
       </aside>
       <article className="report">

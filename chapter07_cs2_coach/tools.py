@@ -7,6 +7,31 @@ from collections.abc import Callable
 from chapter07_cs2_coach.models import Evidence, MatchRecord
 
 
+DUST2_CALLOUTS = {
+    "MidDoors": "中门",
+    "UnderA": "A小下",
+    "Middle": "中路",
+    "LongA": "A大",
+    "Hole": "B洞",
+    "BombsiteB": "B包点",
+    "ShortStairs": "A小楼梯",
+    "BombsiteA": "A包点",
+    "UpperTunnel": "B二层",
+    "LowerTunnel": "B一层",
+    "ARamp": "A斜坡",
+    "CTSpawn": "警家",
+    "Catwalk": "A小",
+    "LongDoors": "A门",
+    "BDoors": "B门",
+}
+
+
+def _location_label(match: MatchRecord, location: str) -> str:
+    if match.map_name == "de_dust2" and location in DUST2_CALLOUTS:
+        return f"{DUST2_CALLOUTS[location]}（{location}）"
+    return location
+
+
 def get_match_summary(match: MatchRecord) -> dict[str, int | float | str]:
     rounds = match.rounds
     deaths = sum(item.died for item in rounds)
@@ -36,6 +61,16 @@ def analyze_opening_duels(match: MatchRecord) -> list[Evidence]:
     if not total:
         return []
     rate = len(won) / total * 100
+    if total < 3:
+        return [
+            Evidence(
+                finding="本场可识别的首轮交火样本不足，暂时不能判断首杀能力是否稳定。",
+                round_numbers=sorted([*won, *lost]),
+                metric=f"仅识别到 {total} 次首轮交火：{len(won)} 胜 {len(lost)} 负",
+                severity="medium",
+                suggestion="继续记录后续比赛，累计至少三次首轮交火后再判断趋势。",
+            )
+        ]
     if len(lost) >= 4 and rate < 45:
         return [
             Evidence(
@@ -141,10 +176,84 @@ def analyze_clutches(match: MatchRecord) -> list[Evidence]:
     ]
 
 
+def analyze_engagement_decisions(match: MatchRecord) -> list[Evidence]:
+    """基于死亡前局势快照，区分接战条件与最终是否完成补枪。"""
+
+    isolated_advances = [
+        item for item in match.engagements if item.classification == "isolated_advance"
+    ]
+    supported_untraded = [
+        item
+        for item in match.engagements
+        if item.classification == "supported_contact" and not item.was_traded
+    ]
+    evidence: list[Evidence] = []
+    if isolated_advances:
+        average_distance = round(
+            sum(item.nearest_teammate_distance or 0 for item in isolated_advances)
+            / len(isolated_advances)
+        )
+        average_movement = round(
+            sum(item.moved_distance_5s for item in isolated_advances)
+            / len(isolated_advances)
+        )
+        flash_support = sum(
+            item.effective_team_flashes_5s for item in isolated_advances
+        )
+        contexts = "；".join(
+            f"R{item.round_number} {_location_label(match, item.location)} "
+            f"{item.alive_teammates + 1}v{item.alive_enemies}"
+            for item in isolated_advances[:4]
+        )
+        evidence.append(
+            Evidence(
+                finding="多次在缺少近距离队友支持时继续向交火区域移动，死亡后难以形成稳定补枪。",
+                round_numbers=[item.round_number for item in isolated_advances],
+                metric=(
+                    f"{len(isolated_advances)} 次孤立推进死亡，最近队友平均约 "
+                    f"{average_distance} 单位，五秒平均移动 {average_movement} 单位，"
+                    f"团队有效闪白 {flash_support} 人次；{contexts}"
+                ),
+                severity="high" if len(isolated_advances) >= 2 else "medium",
+                suggestion=(
+                    "进入下一个交火区域前确认最近队友已缩短距离；若队友仍超过约 1000 单位，"
+                    "先停下等同步或用道具迫使敌人转移准星。"
+                ),
+            )
+        )
+    if len(supported_untraded) >= 2:
+        average_distance = round(
+            sum(item.nearest_teammate_distance or 0 for item in supported_untraded)
+            / len(supported_untraded)
+        )
+        contexts = "；".join(
+            f"R{item.round_number} {_location_label(match, item.location)} "
+            f"距队友 {item.nearest_teammate_distance}"
+            for item in supported_untraded[:4]
+        )
+        evidence.append(
+            Evidence(
+                finding="部分死亡发生时附近已有队友，但最终没有完成补枪，问题更可能是接触节奏或视线不同步。",
+                round_numbers=[item.round_number for item in supported_untraded],
+                metric=(
+                    f"{len(supported_untraded)} 次近距离支持下仍未补枪，平均距离约 "
+                    f"{average_distance} 单位；{contexts}"
+                ),
+                severity="medium",
+                suggestion=(
+                    "接触前用一句口令或停顿半秒确认队友准星已经到位；两人尽量从能看到同一目标的"
+                    "角度同步拉出，而不是只有空间距离接近。"
+                ),
+            )
+        )
+    return evidence
+
+
 ANALYSIS_TOOLS: dict[str, Callable[[MatchRecord], list[Evidence]]] = {
     "opening_duels": analyze_opening_duels,
     "tradeability": analyze_tradeability,
     "utility": analyze_utility,
     "economy": analyze_economy,
     "clutches": analyze_clutches,
+    "engagements": analyze_engagement_decisions,
 }

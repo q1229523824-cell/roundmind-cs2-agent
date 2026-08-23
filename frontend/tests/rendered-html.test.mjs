@@ -34,7 +34,10 @@ test("server-renders the RoundMind demo upload experience", async () => {
   assert.match(visibleHtml, /上传 CS2 Demo 或 JSON/);
   assert.match(visibleHtml, /\.dem 最大 500 MB/);
   assert.match(visibleHtml, /accept="\.dem,\.json,application\/json"/);
-  assert.match(visibleHtml, /Demo 中的游戏昵称/);
+  assert.match(visibleHtml, /选择要复盘的玩家/);
+  assert.match(visibleHtml, /上传 Demo 后自动读取玩家名单/);
+  assert.match(visibleHtml, /接战决策/);
+  assert.match(visibleHtml, /<strong>6<\/strong><span>分析工具<\/span>/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
@@ -47,6 +50,10 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /const MAX_DEMO_MB = 500/);
   assert.match(page, /file\.size > MAX_DEMO_BYTES/);
   assert.match(page, /\/api\/demo-jobs/);
+  assert.match(page, /\/player/);
+  assert.match(page, /available_players/);
+  assert.match(page, /player_options/);
+  assert.match(page, /player_steamid/);
   assert.match(page, /request\.upload\.onprogress/);
   assert.match(page, /accept="\.dem,\.json,application\/json"/);
   assert.match(configRoute, /process\.env\.ROUNDMIND_API_URL/);

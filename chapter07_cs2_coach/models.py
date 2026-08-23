@@ -37,6 +37,37 @@ class RoundRecord(BaseModel):
         return self
 
 
+class EngagementRecord(BaseModel):
+    """一次死亡前的可复核局势快照，不对玩家意图做主观猜测。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    round_number: int = Field(ge=1, le=100)
+    tick: int = Field(ge=0)
+    classification: Literal[
+        "isolated_advance",
+        "isolated_contact",
+        "supported_contact",
+        "uncertain_support",
+        "last_alive",
+    ]
+    location: str = Field(min_length=1, max_length=80)
+    side: Literal["T", "CT"]
+    position_x: float
+    position_y: float
+    position_z: float
+    health: int = Field(ge=0, le=100)
+    armor: int = Field(ge=0, le=100)
+    weapon: str = Field(default="unknown", min_length=1, max_length=80)
+    alive_teammates: int = Field(ge=0, le=4)
+    alive_enemies: int = Field(ge=0, le=5)
+    nearest_teammate_distance: int | None = Field(default=None, ge=0, le=100000)
+    nearby_support: bool
+    moved_distance_5s: int = Field(ge=0, le=100000)
+    effective_team_flashes_5s: int = Field(ge=0, le=20)
+    was_traded: bool
+
+
 class MatchRecord(BaseModel):
     """一次分析所需的最小比赛数据。"""
 
@@ -51,6 +82,7 @@ class MatchRecord(BaseModel):
     team_score: int = Field(ge=0, le=100)
     opponent_score: int = Field(ge=0, le=100)
     rounds: list[RoundRecord] = Field(min_length=1, max_length=100)
+    engagements: list[EngagementRecord] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def validate_round_numbers(self) -> "MatchRecord":
@@ -62,6 +94,8 @@ class MatchRecord(BaseModel):
         actual_wins = sum(item.won for item in self.rounds)
         if actual_wins != self.team_score:
             raise ValueError("回合胜负记录与本方比分不一致。")
+        if any(item.round_number not in numbers for item in self.engagements):
+            raise ValueError("接战快照必须引用现有回合。")
         return self
 
 

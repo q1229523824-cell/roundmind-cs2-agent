@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
-from chapter07_cs2_coach.models import DemoPlayerOption, MatchRecord
+from chapter07_cs2_coach.models import DemoPlayerOption, EngagementRecord, MatchRecord
 
 
 class DemoParseError(ValueError):
@@ -32,6 +33,11 @@ class DemoParserProtocol(Protocol):
 
 
 ParserFactory = Callable[[str], DemoParserProtocol]
+
+ENGAGEMENT_WINDOW_TICKS = 5 * 64
+NEARBY_SUPPORT_DISTANCE = 750
+ISOLATED_DISTANCE = 1000
+ACTIVE_MOVE_DISTANCE = 300
 
 
 def _default_parser_factory(path: str) -> DemoParserProtocol:
@@ -353,6 +359,14 @@ class CS2DemoMatchParser:
             raise DemoParseError("读取到了回合，但没有找到该玩家的有效比赛事件。")
 
         team_score = sum(item["won"] for item in rounds)
+        engagements = self._build_death_engagements(
+            parser=parser,
+            deaths=deaths,
+            blinds=blinds,
+            freeze_ends=freeze_ends,
+            player=selected,
+            rounds=rounds,
+        )
         with path.open("rb") as demo_file:
             digest = hashlib.sha256(demo_file.read(1024 * 1024)).hexdigest()[:12]
         safe_player = re.sub(r"[^a-zA-Z0-9_-]+", "-", selected.steamid).strip("-")[:24]
@@ -367,6 +381,7 @@ class CS2DemoMatchParser:
                 "team_score": team_score,
                 "opponent_score": len(rounds) - team_score,
                 "rounds": rounds,
+                "engagements": engagements,
             }
         )
 
@@ -473,4 +488,194 @@ class CS2DemoMatchParser:
                 continue
             victim = _text(event, "user_steamid", "user_name")
             unique.add((_integer(event, "tick"), victim))
+        return len(unique)
+
+    @classmethod
+    def _build_death_engagements(
+        cls,
+        *,
+        parser: DemoParserProtocol,
+        deaths: list[dict[str, Any]],
+        blinds: list[dict[str, Any]],
+        freeze_ends: list[dict[str, Any]],
+        player: DemoPlayerOption,
+        rounds: list[dict[str, Any]],
+    ) -> list[EngagementRecord]:
+        player_deaths = [
+            item
+            for item in deaths
+            if _same_identity(item, "user", player.name, player.steamid)
+        ]
+        if not player_deaths:
+            return []
+        freeze_by_round = {
+            _round_index(item): _integer(item, "tick") for item in freeze_ends
+        }
+        windows = {
+            _integer(item, "tick"): (
+                max(
+                    freeze_by_round.get(_round_index(item), 0),
+                    _integer(item, "tick") - ENGAGEMENT_WINDOW_TICKS - 1,
+                ),
+                max(0, _integer(item, "tick") - 1),
+            )
+            for item in player_deaths
+        }
+        wanted_ticks = sorted({tick for pair in windows.values() for tick in pair})
+        try:
+            tick_rows = _records(
+                parser.parse_ticks(
+                    [
+                        "X",
+                        "Y",
+                        "Z",
+                        "health",
+                        "armor_value",
+                        "team_name",
+                        "is_alive",
+                        "last_place_name",
+                        "active_weapon_name",
+                    ],
+                    ticks=wanted_ticks,
+                )
+            )
+        except Exception:
+            return []
+        rows_by_tick: dict[int, list[dict[str, Any]]] = {}
+        for row in tick_rows:
+            rows_by_tick.setdefault(_integer(row, "tick"), []).append(row)
+
+        result: list[EngagementRecord] = []
+        for death in sorted(player_deaths, key=lambda item: _integer(item, "tick")):
+            death_tick = _integer(death, "tick")
+            start_tick, snapshot_tick = windows[death_tick]
+            snapshot_rows = rows_by_tick.get(snapshot_tick, [])
+            player_row = next(
+                (
+                    row
+                    for row in snapshot_rows
+                    if _text(row, "steamid") == player.steamid
+                ),
+                None,
+            )
+            if player_row is None:
+                continue
+            player_team = _text(player_row, "team_name", "team_num")
+            alive_rows = [row for row in snapshot_rows if bool(row.get("is_alive"))]
+            teammates = [
+                row
+                for row in alive_rows
+                if _text(row, "steamid") != player.steamid
+                and _text(row, "team_name", "team_num") == player_team
+            ]
+            enemies = [
+                row
+                for row in alive_rows
+                if _text(row, "team_name", "team_num") != player_team
+            ]
+            position = cls._position(player_row)
+            distances = [
+                round(math.dist(position, cls._position(teammate)))
+                for teammate in teammates
+            ]
+            nearest = min(distances) if distances else None
+            start_row = next(
+                (
+                    row
+                    for row in rows_by_tick.get(start_tick, [])
+                    if _text(row, "steamid") == player.steamid
+                ),
+                None,
+            )
+            moved = (
+                round(math.dist(position, cls._position(start_row)))
+                if start_row is not None
+                else 0
+            )
+            round_index = _round_index(death)
+            round_facts = rounds[round_index] if 0 <= round_index < len(rounds) else {}
+            was_traded = bool(round_facts.get("was_traded", False))
+            classification = cls._classify_death(
+                alive_teammates=len(teammates),
+                nearest_teammate_distance=nearest,
+                moved_distance_5s=moved,
+            )
+            result.append(
+                EngagementRecord(
+                    round_number=round_index + 1,
+                    tick=death_tick,
+                    classification=classification,
+                    location=_text(player_row, "last_place_name") or "Unknown",
+                    side=_normalize_side(player_team),
+                    position_x=position[0],
+                    position_y=position[1],
+                    position_z=position[2],
+                    health=max(0, _integer(player_row, "health", default=100)),
+                    armor=max(0, _integer(player_row, "armor_value")),
+                    weapon=_text(player_row, "active_weapon_name") or "unknown",
+                    alive_teammates=len(teammates),
+                    alive_enemies=len(enemies),
+                    nearest_teammate_distance=nearest,
+                    nearby_support=(
+                        nearest is not None and nearest <= NEARBY_SUPPORT_DISTANCE
+                    ),
+                    moved_distance_5s=moved,
+                    effective_team_flashes_5s=cls._team_flashes_in_window(
+                        blinds,
+                        start_tick=start_tick,
+                        end_tick=death_tick,
+                        team=player_team,
+                    ),
+                    was_traded=was_traded,
+                )
+            )
+        return result
+
+    @staticmethod
+    def _position(row: Mapping[str, Any]) -> tuple[float, float, float]:
+        return (
+            _number(row, "X"),
+            _number(row, "Y"),
+            _number(row, "Z"),
+        )
+
+    @staticmethod
+    def _classify_death(
+        *,
+        alive_teammates: int,
+        nearest_teammate_distance: int | None,
+        moved_distance_5s: int,
+    ) -> str:
+        if alive_teammates == 0 or nearest_teammate_distance is None:
+            return "last_alive"
+        if nearest_teammate_distance > ISOLATED_DISTANCE:
+            return (
+                "isolated_advance"
+                if moved_distance_5s >= ACTIVE_MOVE_DISTANCE
+                else "isolated_contact"
+            )
+        if nearest_teammate_distance <= NEARBY_SUPPORT_DISTANCE:
+            return "supported_contact"
+        return "uncertain_support"
+
+    @staticmethod
+    def _team_flashes_in_window(
+        blinds: Iterable[Mapping[str, Any]],
+        *,
+        start_tick: int,
+        end_tick: int,
+        team: str,
+    ) -> int:
+        unique: set[tuple[int, str]] = set()
+        for event in blinds:
+            tick = _integer(event, "tick")
+            if not start_tick <= tick <= end_tick:
+                continue
+            attacker_team = _text(event, "attacker_team_name", "attacker_team_num")
+            user_team = _text(event, "user_team_name", "user_team_num")
+            if attacker_team != team or (user_team and user_team == team):
+                continue
+            if "blind_duration" in event and _number(event, "blind_duration") < 1.0:
+                continue
+            unique.add((tick, _text(event, "user_steamid", "user_name")))
         return len(unique)
