@@ -80,3 +80,12 @@ DEEPSEEK_BASE_URL=https://api.deepseek.com
 
 API 入口为 `POST /api/coach/chat`。不开启模型时同一接口返回 `mode=offline`；启用且回答通过校验时返回
 `mode=llm` 和模型名。
+
+## 网页连续会话
+
+公开前端通过自己的 `/api/coach/chat` 服务端路由调用 Python 后端。网页不会信任浏览器提供的历史，
+而是使用匿名 HttpOnly Cookie 从 Sites D1 读取最近 12 条消息，再交给后端的 Pydantic 模型验证角色、
+数量和长度。后端只允许 `user` 与 `assistant`，拒绝浏览器注入 `system` 历史。
+
+每轮通过校验的回答才会与问题一起写入 D1；用户可点击“清空对话”删除当前匿名玩家与地图的会话。
+CLI 的 `.agent_data/coach_sessions/` 与网页 D1 是两套独立记忆，当前不会互相同步。

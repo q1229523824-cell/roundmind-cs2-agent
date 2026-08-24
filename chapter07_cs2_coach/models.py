@@ -166,12 +166,30 @@ class AnalysisRequest(BaseModel):
     )
 
 
+class CoachConversationMessage(BaseModel):
+    """网页传入的有界匿名会话历史，不接受系统角色或额外字段。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=6000)
+
+
 class CoachChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     player_steamid: str = Field(min_length=1, max_length=32)
     question: str = Field(min_length=1, max_length=1000)
     map_name: str = Field(default="de_dust2", min_length=1, max_length=80)
+    conversation_history: list[CoachConversationMessage] = Field(
+        default_factory=list, max_length=12
+    )
+
+    @model_validator(mode="after")
+    def validate_history_budget(self) -> "CoachChatRequest":
+        if sum(len(item.content) for item in self.conversation_history) > 18_000:
+            raise ValueError("会话历史不能超过 18,000 个字符。")
+        return self
 
 
 class CoachChatResponse(BaseModel):

@@ -155,6 +155,9 @@ Demo 文件名或本地路径；设计见 `docs/coach-context.md`。
 可选 DeepSeek 教练通过 `POST /api/coach/chat` 或 `python -m chapter07_cs2_coach.coach_cli` 使用该上下文。
 CLI 支持人类可读报告、`--json` 调试输出、`--interactive` 连续追问，以及按匿名玩家和地图隔离的有界
 本地会话记忆；原始 Demo、SteamID 和 API Key 不进入会话文件。
+
+公开网页也提供连续教练面板。网页历史由 Sites D1 保存最近 12 条消息，通过匿名 HttpOnly 会话隔离；
+浏览器不能伪造系统角色，回答仍须通过回合证据与知识 ID 白名单校验。CLI 本地记忆与网页记忆相互独立。
 默认返回离线答案；显式启用后，模型 JSON 还必须通过回合证据和知识 ID 白名单校验，否则自动回退。
 公网鉴权和限流完成前不要开启付费调用。配置与边界见 `docs/llm-coach.md`。
 

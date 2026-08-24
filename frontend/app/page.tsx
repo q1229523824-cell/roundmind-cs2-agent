@@ -88,6 +88,24 @@ type DemoJob = {
   error: string | null;
 };
 
+type CoachChatResponse = {
+  mode: "offline" | "llm";
+  answer: string;
+  model_name: string | null;
+  evidence_refs: string[];
+  knowledge_ids: string[];
+  follow_up_questions: string[];
+  validation_warnings: string[];
+  remembered_turns: number;
+};
+
+type CoachMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  response?: CoachChatResponse;
+};
+
 function r(
   number: number,
   won: number,
@@ -280,6 +298,11 @@ export default function Home() {
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStatus, setUploadStatus] = useState("");
   const [remoteAnalysis, setRemoteAnalysis] = useState<AgentAnalysis | null>(null);
+  const [coachMessages, setCoachMessages] = useState<CoachMessage[]>([]);
+  const [coachQuestion, setCoachQuestion] = useState("");
+  const [coachPending, setCoachPending] = useState(false);
+  const [coachMode, setCoachMode] = useState<"offline" | "llm" | null>(null);
+  const [rememberedTurns, setRememberedTurns] = useState(0);
   const tools = useMemo(() => chooseTools(query), [query]);
   const stats = useMemo(() => summarize(match), [match]);
   const localEvidence = useMemo(() => analyze(match, tools), [match, tools]);
@@ -312,6 +335,9 @@ export default function Home() {
     if (!file) return;
     setError("");
     setRemoteAnalysis(null);
+    setCoachMessages([]);
+    setCoachMode(null);
+    setRememberedTurns(0);
     if (file.name.toLowerCase().endsWith(".dem")) {
       await uploadDemo(file);
       return;
@@ -413,6 +439,9 @@ export default function Home() {
       const completed = await pollDemoJob(body);
       setMatch(completed.match as Match);
       setRemoteAnalysis(completed.analysis);
+      setCoachMessages([]);
+      setCoachMode(null);
+      setRememberedTurns(0);
       setQuery(question.trim() || "综合复盘");
       setUploadProgress(100);
       setUploadStatus("Demo 解析完成，临时文件已删除");
@@ -442,6 +471,74 @@ export default function Home() {
       setRemoteAnalysis(body);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Agent 分析失败");
+    }
+  }
+
+  async function askCoach(suggestedQuestion?: string) {
+    const nextQuestion = (suggestedQuestion ?? coachQuestion).trim();
+    if (!nextQuestion || coachPending) return;
+    if (!apiBase || !match.player_steamid || !remoteAnalysis) {
+      setError("请先上传 Demo、选择玩家并等待解析完成，再开始连续教练对话。");
+      return;
+    }
+    const userMessage: CoachMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: nextQuestion,
+    };
+    setCoachMessages((current) => [...current, userMessage]);
+    setCoachQuestion("");
+    setCoachPending(true);
+    setError("");
+    try {
+      const response = await fetch("/api/coach/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playerSteamid: match.player_steamid,
+          mapName: match.map_name,
+          question: nextQuestion,
+        }),
+      });
+      const body = await response.json() as CoachChatResponse & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "教练暂时无法回答");
+      setCoachMessages((current) => [...current, {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: body.answer,
+        response: body,
+      }]);
+      setCoachMode(body.mode);
+      setRememberedTurns(body.remembered_turns);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "教练对话失败");
+    } finally {
+      setCoachPending(false);
+    }
+  }
+
+  async function resetCoachConversation() {
+    if (!match.player_steamid) return;
+    setCoachPending(true);
+    setError("");
+    try {
+      const response = await fetch("/api/coach/chat", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playerSteamid: match.player_steamid,
+          mapName: match.map_name,
+        }),
+      });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "无法清空会话");
+      setCoachMessages([]);
+      setCoachMode(null);
+      setRememberedTurns(0);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法清空会话");
+    } finally {
+      setCoachPending(false);
     }
   }
 
@@ -476,6 +573,22 @@ export default function Home() {
         <div className="metrics"><div><span>SCORE</span><strong>{stats.score}</strong></div><div><span>K / D / A</span><strong>{stats.kills} / {stats.deaths} / {stats.assists}</strong></div><div><span>ADR</span><strong>{stats.adr}</strong></div><div><span>KAST</span><strong>{stats.kast}%</strong></div><div><span>ROUNDS</span><strong>{stats.rounds}</strong></div></div>
         <div className="reportGrid"><section><h3>教练结论</h3><p className="lead">{remoteAnalysis?.answer || `${match.player_name} 在 ${match.map_name} 打出 ${stats.kills}/${stats.deaths}/${stats.assists}，ADR ${stats.adr}，KAST ${stats.kast}%。`}</p>{evidence.map((item, index) => <div className="finding" key={item.finding}><b>{index + 1}. {item.finding}</b><p>证据：{item.metric}；相关回合：{item.rounds.map((round) => `R${round}`).join("、") || "全场统计"}。</p><p>训练建议：{item.suggestion}</p></div>)}<p className="focus">下一场先只跟踪最高优先级问题，避免一次同时修改太多习惯。</p></section><aside><h3>证据卡片</h3>{evidence.map((item) => <div className={`evidence ${item.severity}`} key={item.metric}><span>{item.severity.toUpperCase()}</span><p>{item.metric}</p><i>{item.rounds.map((round) => `R${round}`).join(" · ") || "全场统计"}</i></div>)}</aside></div>
         {decisionCards.length > 0 && <section className="decisionSection"><div className="sectionTitle"><div><p className="eyebrow">03 / DECISION REVIEW</p><h3>逐回合接战决策卡</h3></div><span>风险描述决策条件，不用死亡结果倒推对错</span></div><div className="decisionGrid">{decisionCards.slice(0, 6).map((card) => <article className={`decisionCard ${card.risk_level}`} key={`${card.round_number}-${card.tick}`}><header><div><span>R{card.round_number} · {card.side}</span><strong>{card.location}</strong></div><div className="riskScore"><b>{card.risk_score}</b><small>/100</small></div></header><div className="riskTrack" aria-label={`风险分 ${card.risk_score}`}><i style={{ width: `${card.risk_score}%` }}/></div><p className="situation">{card.situation}</p><ul>{card.factors.slice(0, 3).map((factor) => <li key={factor}>{factor}</li>)}</ul><p className="better"><b>更优动作</b>{card.better_action}</p><footer><span>置信度 {card.confidence.toUpperCase()}</span><span>{card.knowledge_ids.join(" · ") || "仅比赛事实"}</span></footer></article>)}</div>{knowledgeReferences.length > 0 && <details className="knowledgePanel"><summary>查看本次引用的 {knowledgeReferences.length} 条 Dust2 战术知识</summary><ol>{knowledgeReferences.map((item) => <li key={item.knowledge_id}><b>[{item.knowledge_id}] {item.title}</b><p>{item.principle}</p><small>{item.source} · 匹配分 {item.score}</small></li>)}</ol></details>}</section>}
+        <section className="coachSection">
+          <div className="sectionTitle coachTitle">
+            <div><p className="eyebrow">04 / CONTINUOUS COACH</p><h3>围绕这名玩家继续追问</h3></div>
+            <div className="coachStatus"><span>{coachMode === "llm" ? "DEEPSEEK" : coachMode === "offline" ? "OFFLINE" : "READY"}</span><small>已记忆 {rememberedTurns} 轮</small></div>
+          </div>
+          {!remoteAnalysis || !match.player_steamid ? <div className="coachEmpty"><b>先完成一次 Demo 解析</b><p>选择玩家后，教练会带着比赛证据、角色画像和历史问答与你连续交流。</p></div> : <>
+            <div className="coachThread" aria-live="polite">
+              {coachMessages.length === 0 && <div className="coachWelcome"><span>RM</span><p>比赛上下文已经就绪。你可以让教练展开某条结论、制定训练计划，或解释具体回合。历史最多保留 6 轮。</p></div>}
+              {coachMessages.map((message) => <article className={`chatBubble ${message.role}`} key={message.id}><span>{message.role === "user" ? "YOU" : "COACH"}</span><p>{message.content}</p>{message.response && <><div className="chatRefs">{message.response.evidence_refs.map((item) => <i key={item}>{item}</i>)}{message.response.knowledge_ids.map((item) => <i key={item}>{item}</i>)}</div>{message.response.validation_warnings.map((warning) => <small className="chatWarning" key={warning}>{warning}</small>)}</>}</article>)}
+              {coachPending && <div className="coachTyping"><i/><i/><i/><span>教练正在核对比赛证据</span></div>}
+            </div>
+            {coachMessages.at(-1)?.response?.follow_up_questions?.length ? <div className="followUps">{coachMessages.at(-1)?.response?.follow_up_questions.map((item) => <button key={item} onClick={() => askCoach(item)} disabled={coachPending}>{item}</button>)}</div> : null}
+            <div className="coachComposer"><textarea aria-label="继续询问教练" rows={3} value={coachQuestion} placeholder="例如：把第一点展开，并给我一个三天练习方案" onChange={(event) => setCoachQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) askCoach(); }}/><button onClick={() => askCoach()} disabled={coachPending || !coachQuestion.trim()}>发送 <span>↗</span></button></div>
+            <div className="coachPrivacy"><span>匿名会话 · 不保存 Demo 和 SteamID · Ctrl + Enter 发送</span><button onClick={resetCoachConversation} disabled={coachPending || !coachMessages.length}>清空对话</button></div>
+          </>}
+        </section>
         <details><summary>查看 Agent 执行轨迹</summary><ol>{trace.map((step) => <li key={step}>{step}</li>)}</ol></details>
       </article>
     </section>

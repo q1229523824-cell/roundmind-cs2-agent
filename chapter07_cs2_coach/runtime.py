@@ -100,10 +100,12 @@ class CS2CoachRuntime:
         player_steamid: str,
         map_name: str,
         question: str,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> CoachChatResponse:
         return self.coach_service.answer(
             self.repository.list(),
             player_steamid=player_steamid,
             map_name=map_name,
             question=question,
+            conversation_history=conversation_history,
         )

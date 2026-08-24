@@ -37,15 +37,21 @@ test("server-renders the RoundMind demo upload experience", async () => {
   assert.match(visibleHtml, /选择要复盘的玩家/);
   assert.match(visibleHtml, /上传 Demo 后自动读取玩家名单/);
   assert.match(visibleHtml, /接战决策/);
+  assert.match(visibleHtml, /围绕这名玩家继续追问/);
+  assert.match(visibleHtml, /先完成一次 Demo 解析/);
   assert.match(visibleHtml, /<strong>6<\/strong><span>分析工具<\/span>/);
   assert.match(visibleHtml, /<strong>8<\/strong><span>决策评测场景<\/span>/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
 test("keeps demo uploads bounded and connected to the backend", async () => {
-  const [page, configRoute] = await Promise.all([
+  const [page, configRoute, coachRoute, coachStore, schema, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/config/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/coach/chat/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/coach-sessions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /const MAX_DEMO_MB = 500/);
@@ -61,4 +67,14 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /knowledge_references/);
   assert.match(page, /accept="\.dem,\.json,application\/json"/);
   assert.match(configRoute, /process\.env\.ROUNDMIND_API_URL/);
+  assert.match(page, /\/api\/coach\/chat/);
+  assert.match(page, /CONTINUOUS COACH/);
+  assert.match(page, /remembered_turns/);
+  assert.match(coachRoute, /conversation_history: history/);
+  assert.match(coachRoute, /HttpOnly; SameSite=Lax/);
+  assert.match(coachStore, /MAX_HISTORY_MESSAGES = 12/);
+  assert.match(coachStore, /MAX_HISTORY_CHARS = 18_000/);
+  assert.match(coachStore, /DELETE FROM coach_messages/);
+  assert.match(schema, /coach_messages/);
+  assert.equal(JSON.parse(hosting).d1, "DB");
 });

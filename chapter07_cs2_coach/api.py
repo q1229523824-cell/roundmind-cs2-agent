@@ -207,6 +207,9 @@ def create_app(
                 player_steamid=request.player_steamid.strip(),
                 map_name=request.map_name.strip(),
                 question=request.question.strip(),
+                conversation_history=[
+                    item.model_dump() for item in request.conversation_history
+                ],
             )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
