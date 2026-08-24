@@ -13,6 +13,9 @@ RoundMind 使用 FastAPI 接收 CS2 Source 2 `.dem`，用 `demoparser2` 提取�
 5. 比赛记录进入现有 LangGraph 工作流，返回证据、工具轨迹与训练建议；
 6. 无论成功或失败，`finally` 都会删除临时 Demo。
 
+新 Demo 进入长期玩家画像前，可使用 `python -m chapter07_cs2_coach.quality_cli` 运行数据质量门禁。
+它会区分解析失败与玩家表现，关键事件覆盖不足的比赛不会被建议用于画像更新。
+
 ## 本地启动
 
 ```powershell

@@ -134,6 +134,10 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 设计与置信度门槛见 `docs/player-profile.md`。
 本地多 Demo 可使用 `python -m chapter07_cs2_coach.profile_cli` 批量生成画像，重复比赛会按 `match_id` 去重。
 
+在把新 Demo 纳入画像前，建议先运行 `python -m chapter07_cs2_coach.quality_cli`。质量门禁会检查击杀/死亡
+交火覆盖率、死亡快照覆盖率、重复事件、未知点位、关键上下文缺失和 SteamID，并输出 `pass/review/fail`。
+`fail` 的比赛不应更新长期画像，避免把解析器缺失误判为玩家习惯。详见 `docs/data-quality-gate.md`。
+
 `/health` 会返回 Render 当前部署的 Git 提交前 12 位，便于区分“代码已推送”和“新容器已上线”。
 
 单场分析还会为失败交火检索同阵营、同点位的个人成功样本，把“通用建议”补充为玩家自己已经做到过的

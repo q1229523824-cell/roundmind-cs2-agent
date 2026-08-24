@@ -37,6 +37,7 @@ from chapter07_cs2_coach.profile_cli import (
     build_profile_from_demos,
     collect_demo_paths,
 )
+from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
@@ -291,6 +292,63 @@ class DuplicateNameDemoParser(FakeDemoParser):
 
 
 class CS2CoachToolTests(unittest.TestCase):
+    def test_quality_gate_passes_complete_match(self):
+        engagement = EngagementRecord(
+            round_number=1, tick=200, classification="supported_contact",
+            location="LongA", side="T", position_x=0, position_y=0, position_z=0,
+            health=0, armor=80, weapon="ak47", alive_teammates=3, alive_enemies=2,
+            nearest_teammate_distance=400, nearby_support=True,
+            moved_distance_5s=100, effective_team_flashes_5s=1, was_traded=True,
+        )
+        contacts = [
+            ContactEpisode(
+                round_number=1, start_tick=100, end_tick=150, location="LongA",
+                side="T", first_damage_by_player=True, damage_dealt=100,
+                damage_taken=0, outcome="kill", duration_seconds=1, weapon="ak47",
+                health_before_contact=100, armor_before_contact=100,
+                opponent_distance=600, alive_teammates=0,
+                nearest_teammate_distance=None, player_view_angle_error=5,
+                support_ready_teammates_proxy=None,
+            ),
+            ContactEpisode(
+                round_number=1, start_tick=180, end_tick=200, location="LongA",
+                side="T", first_damage_by_player=False, damage_dealt=0,
+                damage_taken=100, outcome="death", duration_seconds=0.5,
+                weapon="ak47", health_before_contact=100, armor_before_contact=80,
+                opponent_distance=700, alive_teammates=3,
+                nearest_teammate_distance=400, player_view_angle_error=15,
+                support_ready_teammates_proxy=1,
+            ),
+        ]
+        match = MatchRecord.model_validate(
+            {
+                "match_id": "quality-pass", "player_name": "Learner",
+                "player_steamid": "42", "map_name": "de_dust2",
+                "team_name": "A", "opponent_name": "B",
+                "team_score": 1, "opponent_score": 0,
+                "rounds": [{"number": 1, "side": "T", "won": True,
+                            "kills": 1, "died": True}],
+                "engagements": [engagement.model_dump()],
+                "contact_episodes": [item.model_dump() for item in contacts],
+            }
+        )
+
+        audit = audit_match(match)
+        batch = audit_matches([match])
+
+        self.assertEqual(audit.gate, "pass")
+        self.assertEqual(audit.quality_score, 100)
+        self.assertEqual(batch.passed, 1)
+
+    def test_quality_gate_rejects_missing_event_coverage(self):
+        audit = audit_match(SAMPLE_MATCH)
+
+        self.assertEqual(audit.gate, "fail")
+        self.assertTrue(any(
+            item.key == "contact_death_coverage" and item.status == "fail"
+            for item in audit.checks
+        ))
+
     @staticmethod
     def _annotation_match() -> MatchRecord:
         cases = load_evaluation_cases()
