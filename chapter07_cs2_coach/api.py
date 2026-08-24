@@ -16,6 +16,8 @@ from pydantic import ValidationError
 from chapter07_cs2_coach.models import (
     AnalysisRequest,
     AnalysisResponse,
+    CoachChatRequest,
+    CoachChatResponse,
     DemoJobResponse,
     DemoPlayerSelection,
     MatchRecord,
@@ -195,6 +197,17 @@ def create_app(
     def analyze(request: AnalysisRequest) -> AnalysisResponse:
         try:
             return runtime.analyze(match_id=request.match_id, question=request.question)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/api/coach/chat", response_model=CoachChatResponse, tags=["coach"])
+    def coach_chat(request: CoachChatRequest) -> CoachChatResponse:
+        try:
+            return runtime.coach_chat(
+                player_steamid=request.player_steamid.strip(),
+                map_name=request.map_name.strip(),
+                question=request.question.strip(),
+            )
         except KeyError as error:
             raise HTTPException(status_code=404, detail=str(error)) from error
 

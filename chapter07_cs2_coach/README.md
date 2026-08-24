@@ -22,6 +22,9 @@ RoundMind 使用 FastAPI 接收 CS2 Source 2 `.dem`，用 `demoparser2` 提取�
 画像验证后，可使用 `python -m chapter07_cs2_coach.context_cli` 生成匿名、最大 32 KB 的教练上下文包。
 该步骤只组合事实、个人案例与本地知识，不调用外部大模型。
 
+`POST /api/coach/chat` 和 `python -m chapter07_cs2_coach.coach_cli` 提供可选 DeepSeek 教练。默认离线；
+显式启用后的回答必须通过证据引用白名单，否则自动回退确定性报告。
+
 ## 本地启动
 
 ```powershell

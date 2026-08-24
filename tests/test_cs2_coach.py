@@ -20,6 +20,7 @@ from chapter07_cs2_coach.contact_analysis import (
     find_contact_hotspots,
 )
 from chapter07_cs2_coach.coach_context import MAX_CONTEXT_BYTES, build_coach_context
+from chapter07_cs2_coach.coach_llm import CoachService
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
 from chapter07_cs2_coach.decision_scoring import build_decision_cards, score_engagement
@@ -293,6 +294,20 @@ class InlineExecutor:
         return future
 
 
+class FakeCoachModel:
+    model_name = "fake-coach"
+
+    def __init__(self, response: dict):
+        self.response = response
+        self.context_json = ""
+        self.question = ""
+
+    def complete(self, *, context_json: str, question: str) -> str:
+        self.context_json = context_json
+        self.question = question
+        return json.dumps(self.response, ensure_ascii=False)
+
+
 class DuplicateNameDemoParser(FakeDemoParser):
     def parse_player_info(self):
         return super().parse_player_info() + [{"name": "Learner", "steamid": "4"}]
@@ -374,6 +389,64 @@ def quality_ready_match(
 
 
 class CS2CoachToolTests(unittest.TestCase):
+    def test_llm_coach_accepts_only_whitelisted_citations(self):
+        steamid = "76561198012345678"
+        matches = [
+            quality_ready_match(
+                match_id=f"coach-match-{index}", player_steamid=steamid
+            )
+            for index in range(1, 4)
+        ]
+        model = FakeCoachModel(
+            {
+                "answer": "先处理步枪被先手后的二次接触。",
+                "evidence_refs": ["match_01:R1"],
+                "knowledge_ids": [],
+                "follow_up_questions": ["要生成训练计划吗？"],
+            }
+        )
+
+        response = CoachService(model).answer(
+            matches,
+            player_steamid=steamid,
+            map_name="de_dust2",
+            question="我下一步练什么？",
+        )
+
+        self.assertEqual(response.mode, "llm")
+        self.assertEqual(response.model_name, "fake-coach")
+        self.assertNotIn(steamid, model.context_json)
+        self.assertNotIn("Learner", model.context_json)
+        self.assertEqual(model.question, "我下一步练什么？")
+
+    def test_llm_coach_falls_back_on_fabricated_citation(self):
+        steamid = "76561198012345678"
+        matches = [
+            quality_ready_match(
+                match_id=f"coach-match-{index}", player_steamid=steamid
+            )
+            for index in range(1, 4)
+        ]
+        model = FakeCoachModel(
+            {
+                "answer": "虚构回答",
+                "evidence_refs": ["match_99:R99"],
+                "knowledge_ids": ["invented-knowledge"],
+                "follow_up_questions": [],
+            }
+        )
+
+        response = CoachService(model).answer(
+            matches,
+            player_steamid=steamid,
+            map_name="de_dust2",
+            question="分析我",
+        )
+
+        self.assertEqual(response.mode, "offline")
+        self.assertTrue(response.validation_warnings)
+        self.assertNotIn("虚构回答", response.answer)
+
     def test_coach_context_is_bounded_and_anonymous(self):
         steamid = "76561198012345678"
         matches = [
@@ -1267,6 +1340,29 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(
             self.client.get("/api/player-profiles/missing").status_code, 404
         )
+
+    def test_coach_chat_defaults_to_safe_offline_mode(self):
+        steamid = "76561198012345678"
+        for index in range(1, 4):
+            self.client.app.state.runtime.add_match(
+                quality_ready_match(
+                    match_id=f"api-coach-{index}", player_steamid=steamid
+                )
+            )
+
+        response = self.client.post(
+            "/api/coach/chat",
+            json={
+                "player_steamid": steamid,
+                "map_name": "de_dust2",
+                "question": "我下一步练什么？",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["mode"], "offline")
+        self.assertTrue(response.json()["evidence_refs"])
+        self.assertNotIn(steamid, response.json()["answer"])
 
     def test_analyze_endpoint(self):
         response = self.client.post(

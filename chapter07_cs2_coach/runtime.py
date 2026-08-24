@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from threading import RLock
 
+from chapter07_cs2_coach.coach_llm import CoachService
 from chapter07_cs2_coach.models import (
     AnalysisResponse,
+    CoachChatResponse,
     MatchRecord,
     PlayerProfileResponse,
 )
@@ -46,14 +48,19 @@ class CS2CoachRuntime:
         *,
         repository: MatchRepository | None = None,
         workflow: CS2CoachWorkflow | None = None,
+        coach_service: CoachService | None = None,
     ) -> None:
         self.repository = repository or MatchRepository()
         self.workflow = workflow or CS2CoachWorkflow()
+        self.coach_service = coach_service or CoachService()
 
     @classmethod
     def create(cls, *, use_llm_planner: bool = False) -> "CS2CoachRuntime":
         planner = DeepSeekToolPlanner() if use_llm_planner else RuleBasedToolPlanner()
-        runtime = cls(workflow=CS2CoachWorkflow(planner))
+        runtime = cls(
+            workflow=CS2CoachWorkflow(planner),
+            coach_service=CoachService.from_environment(),
+        )
         runtime.repository.save(SAMPLE_MATCH)
         return runtime
 
@@ -85,4 +92,18 @@ class CS2CoachRuntime:
             self.repository.list(),
             player_steamid=player_steamid,
             map_name=map_name,
+        )
+
+    def coach_chat(
+        self,
+        *,
+        player_steamid: str,
+        map_name: str,
+        question: str,
+    ) -> CoachChatResponse:
+        return self.coach_service.answer(
+            self.repository.list(),
+            player_steamid=player_steamid,
+            map_name=map_name,
+            question=question,
         )

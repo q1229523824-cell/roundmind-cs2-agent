@@ -152,6 +152,10 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 Dust2 知识和训练优先级组合成不超过 32 KB 的匿名教练上下文。它不会调用模型，也不会包含昵称、SteamID、
 Demo 文件名或本地路径；设计见 `docs/coach-context.md`。
 
+可选 DeepSeek 教练通过 `POST /api/coach/chat` 或 `python -m chapter07_cs2_coach.coach_cli` 使用该上下文。
+默认返回离线答案；显式启用后，模型 JSON 还必须通过回合证据和知识 ID 白名单校验，否则自动回退。
+公网鉴权和限流完成前不要开启付费调用。配置与边界见 `docs/llm-coach.md`。
+
 ### 决策评分与评测集
 
 `decision_scoring.py` 根据接战类型、队友距离、五秒移动、有效闪光、人数关系和实际补枪生成风险分。

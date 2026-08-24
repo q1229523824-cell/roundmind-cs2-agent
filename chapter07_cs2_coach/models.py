@@ -166,6 +166,28 @@ class AnalysisRequest(BaseModel):
     )
 
 
+class CoachChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    player_steamid: str = Field(min_length=1, max_length=32)
+    question: str = Field(min_length=1, max_length=1000)
+    map_name: str = Field(default="de_dust2", min_length=1, max_length=80)
+
+
+class CoachChatResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["offline", "llm"]
+    answer: str = Field(min_length=1, max_length=6000)
+    player_ref: str = Field(pattern=r"^player_[a-f0-9]{12}$")
+    context_schema: str
+    model_name: str | None = None
+    evidence_refs: list[str] = Field(default_factory=list, max_length=8)
+    knowledge_ids: list[str] = Field(default_factory=list, max_length=8)
+    follow_up_questions: list[str] = Field(default_factory=list, max_length=3)
+    validation_warnings: list[str] = Field(default_factory=list, max_length=8)
+
+
 class Evidence(BaseModel):
     finding: str
     round_numbers: list[int]
