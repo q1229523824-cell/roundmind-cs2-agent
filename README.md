@@ -153,6 +153,8 @@ Dust2 知识和训练优先级组合成不超过 32 KB 的匿名教练上下文�
 Demo 文件名或本地路径；设计见 `docs/coach-context.md`。
 
 可选 DeepSeek 教练通过 `POST /api/coach/chat` 或 `python -m chapter07_cs2_coach.coach_cli` 使用该上下文。
+CLI 支持人类可读报告、`--json` 调试输出、`--interactive` 连续追问，以及按匿名玩家和地图隔离的有界
+本地会话记忆；原始 Demo、SteamID 和 API Key 不进入会话文件。
 默认返回离线答案；显式启用后，模型 JSON 还必须通过回合证据和知识 ID 白名单校验，否则自动回退。
 公网鉴权和限流完成前不要开启付费调用。配置与边界见 `docs/llm-coach.md`。
 

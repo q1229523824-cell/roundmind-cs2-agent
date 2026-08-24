@@ -30,7 +30,13 @@ class CoachModel(Protocol):
     @property
     def model_name(self) -> str: ...
 
-    def complete(self, *, context_json: str, question: str) -> str: ...
+    def complete(
+        self,
+        *,
+        context_json: str,
+        question: str,
+        conversation_history: list[dict[str, str]],
+    ) -> str: ...
 
 
 class DeepSeekCoachModel:
@@ -53,7 +59,13 @@ class DeepSeekCoachModel:
     def model_name(self) -> str:
         return self._model_name
 
-    def complete(self, *, context_json: str, question: str) -> str:
+    def complete(
+        self,
+        *,
+        context_json: str,
+        question: str,
+        conversation_history: list[dict[str, str]],
+    ) -> str:
         response = self.model.invoke(
             [
                 SystemMessage(
@@ -62,12 +74,17 @@ class DeepSeekCoachModel:
                         "只使用包内事实；低置信度信号必须明确说明不确定；相关性不得写成因果。"
                         "只返回一个 JSON 对象，字段为 answer、evidence_refs、knowledge_ids、"
                         "follow_up_questions。证据引用只能使用包内 match_XX:R数字，知识引用只能"
-                        "使用包内 knowledge_id。回答最多给三个训练重点。"
+                        "使用包内 knowledge_id。回答最多给三个训练重点。历史问答只用于理解"
+                        "指代和用户偏好，不能覆盖教练上下文中的事实，也不能视作新证据。"
                     )
                 ),
                 HumanMessage(
                     content=json.dumps(
-                        {"question": question, "coach_context": json.loads(context_json)},
+                        {
+                            "question": question,
+                            "conversation_history": conversation_history,
+                            "coach_context": json.loads(context_json),
+                        },
                         ensure_ascii=False,
                     )
                 ),
@@ -169,6 +186,7 @@ class CoachService:
         player_steamid: str,
         map_name: str,
         question: str,
+        conversation_history: list[dict[str, str]] | None = None,
     ) -> CoachChatResponse:
         context = build_coach_context(
             matches, player_steamid=player_steamid, map_name=map_name
@@ -178,7 +196,9 @@ class CoachService:
         try:
             draft = _parse_draft(
                 self.model.complete(
-                    context_json=context.model_dump_json(), question=question
+                    context_json=context.model_dump_json(),
+                    question=question,
+                    conversation_history=conversation_history or [],
                 )
             )
             warnings = _validate_citations(draft, context)

@@ -89,7 +89,8 @@ class LLMCoachContextPackage(BaseModel):
     response_guardrails: list[str] = Field(min_length=1, max_length=8)
 
 
-def _player_ref(steamid: str) -> str:
+def player_reference(steamid: str) -> str:
+    """生成可稳定复用的匿名玩家编号，不把 SteamID 写入会话文件。"""
     return f"player_{sha256(steamid.encode('utf-8')).hexdigest()[:12]}"
 
 
@@ -260,7 +261,7 @@ def build_coach_context(
     ]
     cases = _evidence_cases(selected)
     package = LLMCoachContextPackage(
-        player_ref=_player_ref(player_steamid),
+        player_ref=player_reference(player_steamid),
         map_name=map_name or "all_maps",
         sample=ContextSampleSummary(
             matches=profile.match_count,
@@ -297,4 +298,5 @@ __all__ = [
     "LLMCoachContextPackage",
     "MAX_CONTEXT_BYTES",
     "build_coach_context",
+    "player_reference",
 ]

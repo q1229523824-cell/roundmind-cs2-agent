@@ -301,10 +301,18 @@ class FakeCoachModel:
         self.response = response
         self.context_json = ""
         self.question = ""
+        self.conversation_history = []
 
-    def complete(self, *, context_json: str, question: str) -> str:
+    def complete(
+        self,
+        *,
+        context_json: str,
+        question: str,
+        conversation_history: list[dict[str, str]],
+    ) -> str:
         self.context_json = context_json
         self.question = question
+        self.conversation_history = conversation_history
         return json.dumps(self.response, ensure_ascii=False)
 
 
@@ -411,6 +419,10 @@ class CS2CoachToolTests(unittest.TestCase):
             player_steamid=steamid,
             map_name="de_dust2",
             question="我下一步练什么？",
+            conversation_history=[
+                {"role": "user", "content": "我主要使用步枪。"},
+                {"role": "assistant", "content": "已记录你的武器偏好。"},
+            ],
         )
 
         self.assertEqual(response.mode, "llm")
@@ -418,6 +430,7 @@ class CS2CoachToolTests(unittest.TestCase):
         self.assertNotIn(steamid, model.context_json)
         self.assertNotIn("Learner", model.context_json)
         self.assertEqual(model.question, "我下一步练什么？")
+        self.assertEqual(len(model.conversation_history), 2)
 
     def test_llm_coach_falls_back_on_fabricated_citation(self):
         steamid = "76561198012345678"

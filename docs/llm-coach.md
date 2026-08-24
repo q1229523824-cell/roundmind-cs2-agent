@@ -19,9 +19,11 @@ SteamID、原始比赛 ID 或本地路径。当前适配 DeepSeek 的 OpenAI 兼
 上下文中的 `match_XX:R数字`，知识只能引用上下文中已有的 `knowledge_id`。引用越界、非 JSON、网络异常
 或模型异常都会被丢弃，用户仍能获得确定性离线结果。
 
-## 本地离线验证
+## 本地单次问答
 
-不开启模型时，命令仍会生成离线教练答案：
+不开启模型时，命令仍会生成离线教练答案。默认输出适合人阅读的分段报告；需要检查接口原始字段时追加
+`--json`。默认会话名为 `default`，同一匿名玩家和地图的最近 12 条消息保存在被 Git 忽略的
+`.agent_data/coach_sessions/`：
 
 ```powershell
 python -m chapter07_cs2_coach.coach_cli `
@@ -30,6 +32,36 @@ python -m chapter07_cs2_coach.coach_cli `
   --map-name de_dust2 `
   --question "我下一步最应该练什么？" `
   --output ".agent_data\coach\answer.json"
+```
+
+如果不希望本次问答读取或保存记忆，追加 `--no-memory`。可以通过 `--session-id aim-training` 创建独立
+主题会话；会话名只能使用字母、数字、下划线和连字符。
+
+## 连续交互问答
+
+交互模式只解析一次 Demo，随后可以直接输入问题：
+
+```powershell
+python -m chapter07_cs2_coach.coach_cli `
+  --demo-dir ".agent_data\demos" `
+  --player-steamid "7656..." `
+  --map-name de_dust2 `
+  --interactive
+```
+
+交互命令：
+
+- `/exit`：保存会话并退出。
+- `/new`：删除当前会话记忆，开始新对话。
+
+会话文件只包含匿名 `player_ref`、地图、用户问题和教练回答，不包含 SteamID、昵称、Demo、本地路径或
+API Key。历史按最近 12 条消息和 18,000 字符双重裁剪，再与匿名教练上下文一同发送给模型。历史仅用于
+理解“第三点”“接着刚才”等指代，不能覆盖 Demo 事实或充当回合证据。
+
+如果传统 PowerShell 中文显示异常，先执行：
+
+```powershell
+chcp 65001
 ```
 
 ## 显式启用 DeepSeek
