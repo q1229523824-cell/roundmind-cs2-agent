@@ -28,6 +28,8 @@ RoundMind 使用 FastAPI 接收 CS2 Source 2 `.dem`，用 `demoparser2` 提取�
 
 统计口径：回合使用击杀事件的当前回合编号；装备价值取冻结时间结束时的
 `current_equip_value`；有效闪白只统计持续至少 1 秒的敌方玩家，并按 tick 与 SteamID 去重。
+部分平台 Demo 会在正式比赛前保留热身回合、热身击杀和无赢家的 `round_end`；解析器会根据
+`round_announce_match_start` 过滤这些事件，避免热身数据被聚合到正式第一回合。
 
 接战快照使用死亡前一 tick 的 `X/Y/Z`、`last_place_name`、血甲、武器和存活玩家，计算最近
 队友距离；同时比较五秒前位置以识别孤立推进。距离只是可解释代理，第一版不声称已经还原墙体、

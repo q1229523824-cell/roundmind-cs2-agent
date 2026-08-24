@@ -291,6 +291,37 @@ class DuplicateNameDemoParser(FakeDemoParser):
         return super().parse_player_info() + [{"name": "Learner", "steamid": "4"}]
 
 
+class WarmupRoundEndDemoParser(FakeDemoParser):
+    def __init__(self, path: str):
+        super().__init__(path)
+        self.events["round_end"].insert(
+            0,
+            {
+                "tick": 1,
+                "round": 0,
+                "total_rounds_played": 0,
+                "winner": None,
+            },
+        )
+        self.events["round_announce_match_start"] = [
+            {"tick": 100, "total_rounds_played": 0}
+        ]
+        self.events["player_death"].insert(
+            0,
+            {
+                "tick": 50,
+                "total_rounds_played": 0,
+                "attacker_name": "Learner",
+                "attacker_steamid": "1",
+                "attacker_team_name": "TERRORIST",
+                "user_name": "WarmupEnemy",
+                "user_steamid": "9",
+                "user_team_name": "CT",
+                "assister_name": "",
+            },
+        )
+
+
 def quality_ready_match(
     *, match_id: str = "quality-pass", player_steamid: str = "42"
 ) -> MatchRecord:
@@ -885,6 +916,20 @@ class CS2CoachToolTests(unittest.TestCase):
 
 
 class CS2DemoParserTests(unittest.TestCase):
+    def test_warmup_round_end_is_not_counted_as_official_round(self):
+        parser = CS2DemoMatchParser(WarmupRoundEndDemoParser)
+        with tempfile.NamedTemporaryFile(suffix=".dem", delete=False) as handle:
+            handle.write(b"PBDEMS2\x00fake-demo")
+            path = Path(handle.name)
+        try:
+            match = parser.parse(path, player_name="Learner", player_steamid="1")
+        finally:
+            path.unlink(missing_ok=True)
+
+        self.assertEqual(len(match.rounds), 2)
+        self.assertEqual([item.kills for item in match.rounds], [1, 0])
+        self.assertEqual([item.died for item in match.rounds], [False, True])
+
     def setUp(self):
         self.parser = CS2DemoMatchParser(FakeDemoParser)
 

@@ -300,6 +300,9 @@ class CS2DemoMatchParser:
             freeze_ends = _records(
                 parser.parse_event("round_freeze_end", other=extra_other)
             )
+            match_starts, _ = _optional_event(
+                parser, "round_announce_match_start", other=extra_other
+            )
             bomb_plants, plants_available = _optional_event(
                 parser, "bomb_planted", other=extra_other
             )
@@ -322,10 +325,69 @@ class CS2DemoMatchParser:
                 "Demo 无法解析，可能来自暂不兼容的 CS2 版本或文件不完整。"
             ) from error
 
+        # 某些平台 Demo 会额外写入一条热身结束事件：round=0 且没有合法赢家。
+        # 它不能算正式回合，否则会与第一回合共同映射到索引 0，放大击杀等统计。
+        round_ends = [item for item in round_ends if _winner_side(item.get("winner"))]
         if not round_ends:
             raise DemoParseError("Demo 中没有读取到正式回合结束事件。")
 
         round_ends.sort(key=lambda item: _integer(item, "tick"))
+        first_round_end_tick = _integer(round_ends[0], "tick")
+        official_start_candidates = [
+            _integer(item, "tick")
+            for item in match_starts
+            if 0 < _integer(item, "tick") < first_round_end_tick
+        ]
+        if not official_start_candidates:
+            zero_round_freezes = [
+                _integer(item, "tick")
+                for item in freeze_ends
+                if _round_index(item) == 0
+                and 0 < _integer(item, "tick") < first_round_end_tick
+            ]
+            if len(zero_round_freezes) > 1:
+                official_start_candidates.append(max(zero_round_freezes))
+        official_start_tick = max(official_start_candidates, default=0)
+        if official_start_tick:
+            deaths = [
+                item for item in deaths if _integer(item, "tick") >= official_start_tick
+            ]
+            hurts = [
+                item for item in hurts if _integer(item, "tick") >= official_start_tick
+            ]
+            blinds = [
+                item for item in blinds if _integer(item, "tick") >= official_start_tick
+            ]
+            freeze_ends = [
+                item
+                for item in freeze_ends
+                if _integer(item, "tick") >= official_start_tick
+            ]
+            bomb_plants = [
+                item
+                for item in bomb_plants
+                if _integer(item, "tick") >= official_start_tick
+            ]
+            bomb_defuses = [
+                item
+                for item in bomb_defuses
+                if _integer(item, "tick") >= official_start_tick
+            ]
+            bomb_explosions = [
+                item
+                for item in bomb_explosions
+                if _integer(item, "tick") >= official_start_tick
+            ]
+            smoke_detonations = [
+                item
+                for item in smoke_detonations
+                if _integer(item, "tick") >= official_start_tick
+            ]
+            smoke_expirations = [
+                item
+                for item in smoke_expirations
+                if _integer(item, "tick") >= official_start_tick
+            ]
         death_by_round = self._group_by_round(deaths)
         hurt_by_round = self._group_by_round(hurts)
         blind_by_round = self._group_by_round(blinds)
@@ -460,21 +522,26 @@ class CS2DemoMatchParser:
         with path.open("rb") as demo_file:
             digest = hashlib.sha256(demo_file.read(1024 * 1024)).hexdigest()[:12]
         safe_player = re.sub(r"[^a-zA-Z0-9_-]+", "-", selected.steamid).strip("-")[:24]
-        return MatchRecord.model_validate(
-            {
-                "match_id": f"dem-{digest}-{safe_player}",
-                "player_name": selected.name,
-                "player_steamid": selected.steamid,
-                "map_name": str(header.get("map_name") or "unknown_map")[:80],
-                "team_name": "Player Team",
-                "opponent_name": "Opponent Team",
-                "team_score": team_score,
-                "opponent_score": len(rounds) - team_score,
-                "rounds": rounds,
-                "engagements": engagements,
-                "contact_episodes": contact_episodes,
-            }
-        )
+        try:
+            return MatchRecord.model_validate(
+                {
+                    "match_id": f"dem-{digest}-{safe_player}",
+                    "player_name": selected.name,
+                    "player_steamid": selected.steamid,
+                    "map_name": str(header.get("map_name") or "unknown_map")[:80],
+                    "team_name": "Player Team",
+                    "opponent_name": "Opponent Team",
+                    "team_score": team_score,
+                    "opponent_score": len(rounds) - team_score,
+                    "rounds": rounds,
+                    "engagements": engagements,
+                    "contact_episodes": contact_episodes,
+                }
+            )
+        except ValueError as error:
+            raise DemoParseError(
+                "Demo 事件可以读取，但生成的比赛事实不一致，已阻止错误数据进入画像。"
+            ) from error
 
     @staticmethod
     def _group_by_round(rows: Iterable[dict[str, Any]]) -> dict[int, list[dict[str, Any]]]:
