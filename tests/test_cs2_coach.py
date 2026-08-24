@@ -19,6 +19,7 @@ from chapter07_cs2_coach.contact_analysis import (
     evaluate_contact_coverage,
     find_contact_hotspots,
 )
+from chapter07_cs2_coach.coach_context import MAX_CONTEXT_BYTES, build_coach_context
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
 from chapter07_cs2_coach.decision_scoring import build_decision_cards, score_engagement
@@ -373,6 +374,31 @@ def quality_ready_match(
 
 
 class CS2CoachToolTests(unittest.TestCase):
+    def test_coach_context_is_bounded_and_anonymous(self):
+        steamid = "76561198012345678"
+        matches = [
+            quality_ready_match(
+                match_id=f"secret-match-{index}", player_steamid=steamid
+            )
+            for index in range(1, 4)
+        ]
+
+        package = build_coach_context(
+            matches, player_steamid=steamid, map_name="de_dust2"
+        )
+        serialized = package.model_dump_json()
+
+        self.assertLessEqual(len(serialized.encode("utf-8")), MAX_CONTEXT_BYTES)
+        self.assertNotIn(steamid, serialized)
+        self.assertNotIn("Learner", serialized)
+        self.assertNotIn("secret-match", serialized)
+        self.assertEqual(package.sample.matches, 3)
+        self.assertGreaterEqual(len(package.evidence_cases), 1)
+        self.assertGreaterEqual(len(package.training_priorities), 1)
+        self.assertTrue(
+            all(item.match_ref.startswith("match_") for item in package.evidence_cases)
+        )
+
     def test_weapon_role_profile_is_evidence_based(self):
         self.assertEqual(weapon_category("weapon_awp"), "sniper")
         self.assertEqual(weapon_category("M4A1-Silencer"), "rifle")

@@ -148,6 +148,10 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 单场分析还会为失败交火检索同阵营、同点位的个人成功样本，把“通用建议”补充为玩家自己已经做到过的
 成功基线；结构化结果位于 `personal_contact_contrasts`，设计边界见 `docs/personal-baseline.md`。
 
+`python -m chapter07_cs2_coach.context_cli` 可以把多场质量摘要、武器角色画像、被先手弱点、个人案例、
+Dust2 知识和训练优先级组合成不超过 32 KB 的匿名教练上下文。它不会调用模型，也不会包含昵称、SteamID、
+Demo 文件名或本地路径；设计见 `docs/coach-context.md`。
+
 ### 决策评分与评测集
 
 `decision_scoring.py` 根据接战类型、队友距离、五秒移动、有效闪光、人数关系和实际补枪生成风险分。
