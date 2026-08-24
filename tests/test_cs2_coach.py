@@ -291,47 +291,53 @@ class DuplicateNameDemoParser(FakeDemoParser):
         return super().parse_player_info() + [{"name": "Learner", "steamid": "4"}]
 
 
+def quality_ready_match(
+    *, match_id: str = "quality-pass", player_steamid: str = "42"
+) -> MatchRecord:
+    engagement = EngagementRecord(
+        round_number=1, tick=200, classification="supported_contact",
+        location="LongA", side="T", position_x=0, position_y=0, position_z=0,
+        health=0, armor=80, weapon="ak47", alive_teammates=3, alive_enemies=2,
+        nearest_teammate_distance=400, nearby_support=True,
+        moved_distance_5s=100, effective_team_flashes_5s=1, was_traded=True,
+    )
+    contacts = [
+        ContactEpisode(
+            round_number=1, start_tick=100, end_tick=150, location="LongA",
+            side="T", first_damage_by_player=True, damage_dealt=100,
+            damage_taken=0, outcome="kill", duration_seconds=1, weapon="ak47",
+            health_before_contact=100, armor_before_contact=100,
+            opponent_distance=600, alive_teammates=0,
+            nearest_teammate_distance=None, player_view_angle_error=5,
+            support_ready_teammates_proxy=None,
+        ),
+        ContactEpisode(
+            round_number=1, start_tick=180, end_tick=200, location="LongA",
+            side="T", first_damage_by_player=False, damage_dealt=0,
+            damage_taken=100, outcome="death", duration_seconds=0.5,
+            weapon="ak47", health_before_contact=100, armor_before_contact=80,
+            opponent_distance=700, alive_teammates=3,
+            nearest_teammate_distance=400, player_view_angle_error=15,
+            support_ready_teammates_proxy=1,
+        ),
+    ]
+    return MatchRecord.model_validate(
+        {
+            "match_id": match_id, "player_name": "Learner",
+            "player_steamid": player_steamid, "map_name": "de_dust2",
+            "team_name": "A", "opponent_name": "B",
+            "team_score": 1, "opponent_score": 0,
+            "rounds": [{"number": 1, "side": "T", "won": True,
+                        "kills": 1, "died": True}],
+            "engagements": [engagement.model_dump()],
+            "contact_episodes": [item.model_dump() for item in contacts],
+        }
+    )
+
+
 class CS2CoachToolTests(unittest.TestCase):
     def test_quality_gate_passes_complete_match(self):
-        engagement = EngagementRecord(
-            round_number=1, tick=200, classification="supported_contact",
-            location="LongA", side="T", position_x=0, position_y=0, position_z=0,
-            health=0, armor=80, weapon="ak47", alive_teammates=3, alive_enemies=2,
-            nearest_teammate_distance=400, nearby_support=True,
-            moved_distance_5s=100, effective_team_flashes_5s=1, was_traded=True,
-        )
-        contacts = [
-            ContactEpisode(
-                round_number=1, start_tick=100, end_tick=150, location="LongA",
-                side="T", first_damage_by_player=True, damage_dealt=100,
-                damage_taken=0, outcome="kill", duration_seconds=1, weapon="ak47",
-                health_before_contact=100, armor_before_contact=100,
-                opponent_distance=600, alive_teammates=0,
-                nearest_teammate_distance=None, player_view_angle_error=5,
-                support_ready_teammates_proxy=None,
-            ),
-            ContactEpisode(
-                round_number=1, start_tick=180, end_tick=200, location="LongA",
-                side="T", first_damage_by_player=False, damage_dealt=0,
-                damage_taken=100, outcome="death", duration_seconds=0.5,
-                weapon="ak47", health_before_contact=100, armor_before_contact=80,
-                opponent_distance=700, alive_teammates=3,
-                nearest_teammate_distance=400, player_view_angle_error=15,
-                support_ready_teammates_proxy=1,
-            ),
-        ]
-        match = MatchRecord.model_validate(
-            {
-                "match_id": "quality-pass", "player_name": "Learner",
-                "player_steamid": "42", "map_name": "de_dust2",
-                "team_name": "A", "opponent_name": "B",
-                "team_score": 1, "opponent_score": 0,
-                "rounds": [{"number": 1, "side": "T", "won": True,
-                            "kills": 1, "died": True}],
-                "engagements": [engagement.model_dump()],
-                "contact_episodes": [item.model_dump() for item in contacts],
-            }
-        )
+        match = quality_ready_match()
 
         audit = audit_match(match)
         batch = audit_matches([match])
@@ -698,6 +704,7 @@ class CS2CoachToolTests(unittest.TestCase):
             matches,
             player_steamid="42",
             map_name="de_dust2",
+            enforce_quality=False,
         )
 
         self.assertEqual(profile.match_count, 3)
@@ -711,6 +718,7 @@ class CS2CoachToolTests(unittest.TestCase):
             matches[:1],
             player_steamid="42",
             map_name="de_dust2",
+            enforce_quality=False,
         )
         self.assertTrue(
             all(
@@ -722,8 +730,64 @@ class CS2CoachToolTests(unittest.TestCase):
             [matches[0], matches[0]],
             player_steamid="42",
             map_name="de_dust2",
+            enforce_quality=False,
         )
         self.assertEqual(deduplicated.match_count, 1)
+
+    def test_player_profile_quality_gate_rejects_bad_matches(self):
+        accepted = quality_ready_match(match_id="accepted")
+        rejected = SAMPLE_MATCH.model_copy(
+            update={
+                "match_id": "rejected",
+                "player_steamid": "42",
+                "map_name": "de_dust2",
+            }
+        )
+
+        profile = build_player_profile(
+            [accepted, rejected],
+            player_steamid="42",
+            map_name="de_dust2",
+        )
+
+        self.assertEqual(profile.source_match_count, 2)
+        self.assertEqual(profile.match_count, 1)
+        self.assertEqual(profile.rejected_match_count, 1)
+        self.assertEqual(profile.quality_gate, "review")
+        self.assertGreaterEqual(len(profile.quality_warnings), 1)
+
+    def test_player_profile_keeps_review_match_with_warning(self):
+        accepted = quality_ready_match(match_id="accepted")
+        review_source = quality_ready_match(match_id="review")
+        review_contacts = list(review_source.contact_episodes)
+        review_contacts[1] = review_contacts[1].model_copy(
+            update={"support_ready_teammates_proxy": None}
+        )
+        review = review_source.model_copy(
+            update={"contact_episodes": review_contacts}
+        )
+
+        profile = build_player_profile(
+            [accepted, review],
+            player_steamid="42",
+            map_name="de_dust2",
+        )
+
+        self.assertEqual(profile.match_count, 2)
+        self.assertEqual(profile.review_match_count, 1)
+        self.assertEqual(profile.rejected_match_count, 0)
+        self.assertEqual(profile.quality_gate, "review")
+        self.assertLess(profile.quality_score_average, 100)
+
+    def test_player_profile_refuses_all_failed_matches(self):
+        rejected = SAMPLE_MATCH.model_copy(
+            update={"player_steamid": "42", "map_name": "de_dust2"}
+        )
+
+        with self.assertRaisesRegex(KeyError, "质量门禁"):
+            build_player_profile(
+                [rejected], player_steamid="42", map_name="de_dust2"
+            )
 
     def test_local_profile_batch_deduplicates_paths_and_parses_matches(self):
         parser = CS2DemoMatchParser(FakeDemoParser)
@@ -746,6 +810,7 @@ class CS2CoachToolTests(unittest.TestCase):
                 player_steamid="1",
                 map_name="de_mirage",
                 parser=parser,
+                enforce_quality=False,
             )
 
         self.assertEqual(paths, [first.resolve(), second.resolve()])
@@ -1060,13 +1125,7 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(health["version"], "local")
 
     def test_player_profile_endpoint_uses_steamid_and_map_filter(self):
-        match = SAMPLE_MATCH.model_copy(
-            update={
-                "match_id": "profile-api-test",
-                "player_steamid": "42",
-                "map_name": "de_dust2",
-            }
-        )
+        match = quality_ready_match(match_id="profile-api-test")
         self.client.app.state.runtime.add_match(match)
 
         response = self.client.get(
@@ -1078,6 +1137,8 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(response.json()["match_count"], 1)
         self.assertEqual(response.json()["confidence"], "low")
         self.assertEqual(response.json()["findings"], [])
+        self.assertEqual(response.json()["quality_gate"], "pass")
+        self.assertEqual(response.json()["quality_score_average"], 100.0)
         self.assertEqual(
             self.client.get("/api/player-profiles/missing").status_code, 404
         )

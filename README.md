@@ -131,6 +131,8 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 
 连续上传同一 SteamID 的多场 Demo 后，可以通过 `/api/player-profiles/{steamid}` 聚合玩家画像。
 画像会区分单场信号、正在形成的模式和跨场重复习惯，并可用 `map_name` 限定地图。
+生成画像前会自动执行数据质量门禁：失败比赛不参与聚合，需复核比赛会降低画像置信度，响应会明确返回
+来源、采用、复核与拒绝的场次数，避免把解析缺失误判成长期习惯。
 设计与置信度门槛见 `docs/player-profile.md`。
 本地多 Demo 可使用 `python -m chapter07_cs2_coach.profile_cli` 批量生成画像，重复比赛会按 `match_id` 去重。
 

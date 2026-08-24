@@ -277,6 +277,12 @@ class PlayerProfileResponse(BaseModel):
     rate_summaries: list[ProfileRateSummary] = Field(max_length=8)
     findings: list[ProfileFinding] = Field(max_length=10)
     confidence: Literal["high", "medium", "low"]
+    source_match_count: int = Field(ge=1)
+    rejected_match_count: int = Field(default=0, ge=0)
+    review_match_count: int = Field(default=0, ge=0)
+    quality_score_average: float | None = Field(default=None, ge=0, le=100)
+    quality_gate: Literal["pass", "review", "not_evaluated"] = "not_evaluated"
+    quality_warnings: list[str] = Field(default_factory=list, max_length=20)
 
 
 class DemoJobResponse(BaseModel):

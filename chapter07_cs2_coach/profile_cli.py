@@ -34,6 +34,7 @@ def build_profile_from_demos(
     player_steamid: str,
     map_name: str | None = None,
     parser: CS2DemoMatchParser | None = None,
+    enforce_quality: bool = True,
 ) -> tuple[PlayerProfileResponse, list[tuple[Path, str]]]:
     parser = parser or CS2DemoMatchParser()
     matches: list[MatchRecord] = []
@@ -54,6 +55,7 @@ def build_profile_from_demos(
         matches,
         player_steamid=player_steamid,
         map_name=map_name,
+        enforce_quality=enforce_quality,
     )
     return profile, failures
 
@@ -91,7 +93,12 @@ def main() -> None:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(profile.model_dump_json(indent=2), encoding="utf-8")
     print(
-        f"已从 {profile.match_count} 场唯一比赛生成画像：{args.output.resolve()}"
+        f"已从 {profile.match_count}/{profile.source_match_count} 场唯一比赛生成画像："
+        f"{args.output.resolve()}"
+    )
+    print(
+        f"质量门禁：{profile.quality_gate}，需复核 {profile.review_match_count} 场，"
+        f"拒绝 {profile.rejected_match_count} 场，平均分 {profile.quality_score_average}。"
     )
     if failures:
         print(f"跳过 {len(failures)} 个无法解析或不包含该玩家的 Demo：")

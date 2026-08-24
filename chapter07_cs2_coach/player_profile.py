@@ -16,6 +16,11 @@ from chapter07_cs2_coach.models import (
     ProfileFinding,
     ProfileRateSummary,
 )
+from chapter07_cs2_coach.quality_audit import MatchQualityAudit, audit_match
+
+
+def _downgrade_confidence(value: str) -> str:
+    return {"high": "medium", "medium": "low", "low": "low"}[value]
 
 
 def _rate_summary(label: str, stats: ContactOutcomeStats) -> ProfileRateSummary:
@@ -197,6 +202,7 @@ def build_player_profile(
     *,
     player_steamid: str,
     map_name: str | None = None,
+    enforce_quality: bool = True,
 ) -> PlayerProfileResponse:
     selected_by_id = {
         match.match_id: match
@@ -204,9 +210,22 @@ def build_player_profile(
         if match.player_steamid == player_steamid
         and (map_name is None or match.map_name == map_name)
     }
-    selected = list(selected_by_id.values())
-    if not selected:
+    source_matches = list(selected_by_id.values())
+    if not source_matches:
         raise KeyError("没有找到该 SteamID 对应的比赛画像数据。")
+    audits: list[MatchQualityAudit] = []
+    if enforce_quality:
+        audits = [audit_match(match) for match in source_matches]
+        accepted_ids = {
+            item.match_id for item in audits if item.gate in {"pass", "review"}
+        }
+        selected = [
+            match for match in source_matches if match.match_id in accepted_ids
+        ]
+        if not selected:
+            raise KeyError("找到比赛，但均未通过数据质量门禁，无法生成可靠画像。")
+    else:
+        selected = source_matches
     contacts = [item for match in selected for item in match.contact_episodes]
     comparison = compare_contact_outcomes(contacts)
     findings = [
@@ -226,6 +245,22 @@ def build_player_profile(
         if match_count >= 3 and len(contacts) >= 60
         else "low"
     )
+    review_count = sum(item.gate == "review" for item in audits)
+    rejected_count = sum(item.gate == "fail" for item in audits)
+    if review_count:
+        confidence = _downgrade_confidence(confidence)
+        findings = [
+            item.model_copy(
+                update={"confidence": _downgrade_confidence(item.confidence)}
+            )
+            for item in findings
+        ]
+    quality_warnings = []
+    for audit in audits:
+        for warning in audit.warnings:
+            message = f"{audit.match_id}: {warning}"
+            if message not in quality_warnings:
+                quality_warnings.append(message)
     return PlayerProfileResponse(
         player_name=selected[-1].player_name,
         player_steamid=player_steamid,
@@ -241,6 +276,22 @@ def build_player_profile(
         ],
         findings=findings,
         confidence=confidence,
+        source_match_count=len(source_matches),
+        rejected_match_count=rejected_count,
+        review_match_count=review_count,
+        quality_score_average=(
+            round(sum(item.quality_score for item in audits) / len(audits), 2)
+            if audits
+            else None
+        ),
+        quality_gate=(
+            "review"
+            if review_count or rejected_count
+            else "pass"
+            if audits
+            else "not_evaluated"
+        ),
+        quality_warnings=quality_warnings[:20],
     )
 
 
