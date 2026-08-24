@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const MAX_DEMO_MB = 500;
 const MAX_DEMO_BYTES = MAX_DEMO_MB * 1024 * 1024;
@@ -104,6 +104,12 @@ type CoachMessage = {
   role: "user" | "assistant";
   content: string;
   response?: CoachChatResponse;
+};
+
+type CoachHistoryResponse = {
+  messages: Array<Pick<CoachMessage, "role" | "content">>;
+  remembered_turns: number;
+  error?: string;
 };
 
 function r(
@@ -303,6 +309,11 @@ export default function Home() {
   const [coachPending, setCoachPending] = useState(false);
   const [coachMode, setCoachMode] = useState<"offline" | "llm" | null>(null);
   const [rememberedTurns, setRememberedTurns] = useState(0);
+  const [coachError, setCoachError] = useState("");
+  const [coachStage, setCoachStage] = useState("");
+  const [copiedMessageId, setCopiedMessageId] = useState("");
+  const coachAbortRef = useRef<AbortController | null>(null);
+  const coachThreadEndRef = useRef<HTMLDivElement | null>(null);
   const tools = useMemo(() => chooseTools(query), [query]);
   const stats = useMemo(() => summarize(match), [match]);
   const localEvidence = useMemo(() => analyze(match, tools), [match, tools]);
@@ -330,6 +341,36 @@ export default function Home() {
       .then((config: { backendUrl?: string }) => setApiBase((config.backendUrl ?? "").replace(/\/$/, "")))
       .catch(() => setApiBase(""));
   }, []);
+
+  useEffect(() => {
+    if (!remoteAnalysis || !match.player_steamid) return;
+    const controller = new AbortController();
+    const params = new URLSearchParams({
+      playerSteamid: match.player_steamid,
+      mapName: match.map_name,
+    });
+    setCoachStage("正在恢复历史对话…");
+    fetch(`/api/coach/chat?${params}`, { signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json() as CoachHistoryResponse;
+        if (!response.ok) throw new Error(body.error ?? "无法恢复历史对话");
+        setCoachMessages(body.messages.map((message, index) => ({
+          ...message,
+          id: `history-${index}`,
+        })));
+        setRememberedTurns(body.remembered_turns);
+      })
+      .catch((reason) => {
+        if (reason instanceof DOMException && reason.name === "AbortError") return;
+        setCoachError(reason instanceof Error ? reason.message : "无法恢复历史对话");
+      })
+      .finally(() => setCoachStage(""));
+    return () => controller.abort();
+  }, [remoteAnalysis, match.player_steamid, match.map_name]);
+
+  useEffect(() => {
+    coachThreadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [coachMessages, coachPending, coachError]);
 
   async function upload(file?: File) {
     if (!file) return;
@@ -489,7 +530,18 @@ export default function Home() {
     setCoachMessages((current) => [...current, userMessage]);
     setCoachQuestion("");
     setCoachPending(true);
-    setError("");
+    setCoachError("");
+    setCoachStage("正在整理玩家画像与比赛上下文…");
+    const controller = new AbortController();
+    coachAbortRef.current = controller;
+    const evidenceStage = window.setTimeout(
+      () => setCoachStage("正在核对回合证据与知识条目…"),
+      1200,
+    );
+    const answerStage = window.setTimeout(
+      () => setCoachStage("正在组织可执行的教练建议…"),
+      3500,
+    );
     try {
       const response = await fetch("/api/coach/chat", {
         method: "POST",
@@ -499,6 +551,7 @@ export default function Home() {
           mapName: match.map_name,
           question: nextQuestion,
         }),
+        signal: controller.signal,
       });
       const body = await response.json() as CoachChatResponse & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "教练暂时无法回答");
@@ -511,16 +564,40 @@ export default function Home() {
       setCoachMode(body.mode);
       setRememberedTurns(body.remembered_turns);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "教练对话失败");
+      const wasStopped = reason instanceof DOMException && reason.name === "AbortError";
+      setCoachError(wasStopped ? "本次生成已停止，你可以修改问题后重试。" : reason instanceof Error ? reason.message : "教练对话失败");
     } finally {
+      window.clearTimeout(evidenceStage);
+      window.clearTimeout(answerStage);
+      coachAbortRef.current = null;
       setCoachPending(false);
+      setCoachStage("");
     }
+  }
+
+  function stopCoach() {
+    coachAbortRef.current?.abort();
+  }
+
+  async function copyCoachAnswer(message: CoachMessage) {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopiedMessageId(message.id);
+      window.setTimeout(() => setCopiedMessageId(""), 1600);
+    } catch {
+      setCoachError("复制失败，请手动选择文本复制。");
+    }
+  }
+
+  function retryLastQuestion() {
+    const lastQuestion = [...coachMessages].reverse().find((message) => message.role === "user");
+    if (lastQuestion) askCoach(lastQuestion.content);
   }
 
   async function resetCoachConversation() {
     if (!match.player_steamid) return;
     setCoachPending(true);
-    setError("");
+    setCoachError("");
     try {
       const response = await fetch("/api/coach/chat", {
         method: "DELETE",
@@ -536,7 +613,7 @@ export default function Home() {
       setCoachMode(null);
       setRememberedTurns(0);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "无法清空会话");
+      setCoachError(reason instanceof Error ? reason.message : "无法清空会话");
     } finally {
       setCoachPending(false);
     }
@@ -581,12 +658,15 @@ export default function Home() {
           {!remoteAnalysis || !match.player_steamid ? <div className="coachEmpty"><b>先完成一次 Demo 解析</b><p>选择玩家后，教练会带着比赛证据、角色画像和历史问答与你连续交流。</p></div> : <>
             <div className="coachThread" aria-live="polite">
               {coachMessages.length === 0 && <div className="coachWelcome"><span>RM</span><p>比赛上下文已经就绪。你可以让教练展开某条结论、制定训练计划，或解释具体回合。历史最多保留 6 轮。</p></div>}
-              {coachMessages.map((message) => <article className={`chatBubble ${message.role}`} key={message.id}><span>{message.role === "user" ? "YOU" : "COACH"}</span><p>{message.content}</p>{message.response && <><div className="chatRefs">{message.response.evidence_refs.map((item) => <i key={item}>{item}</i>)}{message.response.knowledge_ids.map((item) => <i key={item}>{item}</i>)}</div>{message.response.validation_warnings.map((warning) => <small className="chatWarning" key={warning}>{warning}</small>)}</>}</article>)}
-              {coachPending && <div className="coachTyping"><i/><i/><i/><span>教练正在核对比赛证据</span></div>}
+              {coachMessages.map((message) => <article className={`chatBubble ${message.role}`} key={message.id}><span>{message.role === "user" ? "YOU" : "COACH"}</span><p>{message.content}</p>{message.response && <><div className="chatRefs">{message.response.evidence_refs.map((item) => <i key={item}>{item}</i>)}{message.response.knowledge_ids.map((item) => <i key={item}>{item}</i>)}</div>{message.response.validation_warnings.map((warning) => <small className="chatWarning" key={warning}>{warning}</small>)}</>}{message.role === "assistant" && <div className="chatActions"><button onClick={() => copyCoachAnswer(message)}>{copiedMessageId === message.id ? "已复制" : "复制回答"}</button></div>}</article>)}
+              {coachPending && <div className="coachTyping"><i/><i/><i/><span>{coachStage || "教练正在处理"}</span><button onClick={stopCoach}>停止</button></div>}
+              {!coachPending && coachStage && <div className="coachTyping"><i/><i/><i/><span>{coachStage}</span></div>}
+              {coachError && <div className="coachInlineError"><span>{coachError}</span><button onClick={retryLastQuestion} disabled={coachPending || !coachMessages.some((message) => message.role === "user")}>重试上一问</button></div>}
+              <div ref={coachThreadEndRef}/>
             </div>
             {coachMessages.at(-1)?.response?.follow_up_questions?.length ? <div className="followUps">{coachMessages.at(-1)?.response?.follow_up_questions.map((item) => <button key={item} onClick={() => askCoach(item)} disabled={coachPending}>{item}</button>)}</div> : null}
-            <div className="coachComposer"><textarea aria-label="继续询问教练" rows={3} value={coachQuestion} placeholder="例如：把第一点展开，并给我一个三天练习方案" onChange={(event) => setCoachQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) askCoach(); }}/><button onClick={() => askCoach()} disabled={coachPending || !coachQuestion.trim()}>发送 <span>↗</span></button></div>
-            <div className="coachPrivacy"><span>匿名会话 · 不保存 Demo 和 SteamID · Ctrl + Enter 发送</span><button onClick={resetCoachConversation} disabled={coachPending || !coachMessages.length}>清空对话</button></div>
+            <div className="coachComposer"><textarea aria-label="继续询问教练" rows={3} value={coachQuestion} placeholder="例如：把第一点展开，并给我一个三天练习方案" onChange={(event) => setCoachQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); askCoach(); } }}/><button onClick={() => askCoach()} disabled={coachPending || !coachQuestion.trim()}>发送 <span>↗</span></button></div>
+            <div className="coachPrivacy"><span>匿名会话 · 不保存 Demo 和 SteamID · Enter 发送 / Shift + Enter 换行</span><button onClick={resetCoachConversation} disabled={coachPending || !coachMessages.length}>清空对话</button></div>
           </>}
         </section>
         <details><summary>查看 Agent 执行轨迹</summary><ol>{trace.map((step) => <li key={step}>{step}</li>)}</ol></details>

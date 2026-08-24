@@ -70,6 +70,12 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /\/api\/coach\/chat/);
   assert.match(page, /CONTINUOUS COACH/);
   assert.match(page, /remembered_turns/);
+  assert.match(page, /停止/);
+  assert.match(page, /复制回答/);
+  assert.match(page, /重试上一问/);
+  assert.match(page, /Shift \+ Enter 换行/);
+  assert.match(coachRoute, /export async function GET/);
+  assert.match(coachRoute, /loadCoachHistory/);
   assert.match(coachRoute, /conversation_history: history/);
   assert.match(coachRoute, /HttpOnly; SameSite=Lax/);
   assert.match(coachStore, /MAX_HISTORY_MESSAGES = 12/);

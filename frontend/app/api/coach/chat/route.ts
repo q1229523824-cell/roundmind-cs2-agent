@@ -63,6 +63,27 @@ function withSessionCookie(response: Response, request: Request, id: string) {
   return response;
 }
 
+export async function GET(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const payload = parseIdentity({
+      playerSteamid: url.searchParams.get("playerSteamid") ?? undefined,
+      mapName: url.searchParams.get("mapName") ?? undefined,
+    });
+    const session = sessionId(request);
+    const playerRef = await anonymousPlayerRef(payload.playerSteamid);
+    const messages = await loadCoachHistory(session.value, playerRef, payload.mapName);
+    return withSessionCookie(
+      Response.json({ messages, remembered_turns: Math.floor(messages.length / 2) }),
+      request,
+      session.value,
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "无法读取历史会话";
+    return Response.json({ error: message }, { status: 400 });
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const payload = parsePayload((await request.json()) as CoachRequest);

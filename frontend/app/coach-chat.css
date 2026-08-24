@@ -38,11 +38,18 @@
 .chatRefs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
 .chatRefs i { font-style: normal; color: #b9cf63; border: 1px solid #3d4729; padding: 4px 6px; font: 9px var(--font-mono), monospace; }
 .chatWarning { display: block; color: #ffc5bb; margin-top: 10px; line-height: 1.5; }
+.chatActions { display: flex; justify-content: flex-end; margin-top: 10px; }
+.chatActions button { border: 0; background: transparent; color: #878b7e; padding: 3px 0; font: 10px var(--font-mono), monospace; cursor: pointer; }
+.chatActions button:hover { color: var(--accent); }
 .coachTyping { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11px; }
 .coachTyping i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: coachPulse 1s infinite alternate; }
 .coachTyping i:nth-child(2) { animation-delay: .2s; }
 .coachTyping i:nth-child(3) { animation-delay: .4s; }
 .coachTyping span { margin-left: 6px; }
+.coachTyping button { margin-left: auto; border: 1px solid #5d403a; background: transparent; color: #ffc5bb; padding: 5px 8px; font-size: 10px; cursor: pointer; }
+.coachInlineError { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #613b34; background: rgba(255,112,91,.06); color: #ffc5bb; padding: 11px 13px; font-size: 11px; line-height: 1.5; }
+.coachInlineError button { flex: 0 0 auto; border: 1px solid #795048; background: transparent; color: #ffd3cc; padding: 6px 9px; font-size: 10px; cursor: pointer; }
+.coachInlineError button:disabled { opacity: .4; cursor: not-allowed; }
 .followUps { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .followUps button { border: 1px solid #4b572b; background: rgba(217,255,67,.04); color: #cbd6a4; padding: 8px 10px; font-size: 11px; cursor: pointer; text-align: left; }
 .followUps button:hover { border-color: var(--accent); color: var(--accent); }
@@ -65,6 +72,7 @@
   .coachComposer { grid-template-columns: 1fr; }
   .coachComposer button { min-height: 48px; }
   .coachPrivacy { align-items: flex-start; gap: 12px; }
+  .coachInlineError { align-items: flex-start; flex-direction: column; }
   .coachStatus { align-items: flex-start; }
   .coachTitle { align-items: flex-start !important; gap: 14px; }
 }
