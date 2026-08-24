@@ -17,6 +17,11 @@ from chapter07_cs2_coach.models import (
     ProfileRateSummary,
 )
 from chapter07_cs2_coach.quality_audit import MatchQualityAudit, audit_match
+from chapter07_cs2_coach.weapon_role_profile import (
+    build_first_damage_disadvantage_segments,
+    build_weapon_profile,
+    infer_role_profile,
+)
 
 
 def _downgrade_confidence(value: str) -> str:
@@ -228,6 +233,9 @@ def build_player_profile(
         selected = source_matches
     contacts = [item for match in selected for item in match.contact_episodes]
     comparison = compare_contact_outcomes(contacts)
+    weapon_profile = build_weapon_profile(contacts)
+    role_profile = infer_role_profile(selected, weapon_profile)
+    disadvantage_segments = build_first_damage_disadvantage_segments(contacts)
     findings = [
         item
         for item in (
@@ -254,6 +262,15 @@ def build_player_profile(
                 update={"confidence": _downgrade_confidence(item.confidence)}
             )
             for item in findings
+        ]
+        role_profile = role_profile.model_copy(
+            update={"confidence": _downgrade_confidence(role_profile.confidence)}
+        )
+        disadvantage_segments = [
+            item.model_copy(
+                update={"confidence": _downgrade_confidence(item.confidence)}
+            )
+            for item in disadvantage_segments
         ]
     quality_warnings = []
     for audit in audits:
@@ -292,6 +309,9 @@ def build_player_profile(
             else "not_evaluated"
         ),
         quality_warnings=quality_warnings[:20],
+        weapon_profile=weapon_profile,
+        role_profile=role_profile,
+        first_damage_disadvantage_segments=disadvantage_segments,
     )
 
 

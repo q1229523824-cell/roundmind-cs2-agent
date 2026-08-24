@@ -41,6 +41,12 @@ from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
+from chapter07_cs2_coach.weapon_role_profile import (
+    build_first_damage_disadvantage_segments,
+    build_weapon_profile,
+    infer_role_profile,
+    weapon_category,
+)
 
 
 class FakeDemoParser:
@@ -367,6 +373,51 @@ def quality_ready_match(
 
 
 class CS2CoachToolTests(unittest.TestCase):
+    def test_weapon_role_profile_is_evidence_based(self):
+        self.assertEqual(weapon_category("weapon_awp"), "sniper")
+        self.assertEqual(weapon_category("M4A1-Silencer"), "rifle")
+        episodes = []
+        for index in range(30):
+            own_first = index % 12 < 6
+            strong_outcome = "kill" if index % 6 != 5 else "death"
+            weak_outcome = "kill" if index % 6 == 0 else "death"
+            episodes.append(
+                ContactEpisode(
+                    round_number=1,
+                    start_tick=index * 100,
+                    end_tick=index * 100 + 20,
+                    location="LongA",
+                    side="T",
+                    first_damage_by_player=own_first,
+                    damage_dealt=100 if own_first else 20,
+                    damage_taken=20 if own_first else 100,
+                    outcome=strong_outcome if own_first else weak_outcome,
+                    duration_seconds=0.3,
+                    weapon="awp" if index < 20 else "ak47",
+                    health_before_contact=100,
+                    armor_before_contact=100,
+                    opponent_distance=900,
+                    alive_teammates=2,
+                    nearest_teammate_distance=400,
+                    player_view_angle_error=10,
+                    support_ready_teammates_proxy=1,
+                )
+            )
+        weapons = build_weapon_profile(episodes)
+        role = infer_role_profile(
+            [quality_ready_match(match_id=f"role-{index}") for index in range(3)],
+            weapons,
+        )
+        segments = build_first_damage_disadvantage_segments(episodes)
+
+        self.assertEqual(weapons[0].category, "sniper")
+        self.assertEqual(weapons[0].contacts, 20)
+        self.assertEqual(role.role, "primary_awper")
+        self.assertEqual(role.confidence, "medium")
+        self.assertTrue(
+            any(item.dimension == "distance" for item in segments)
+        )
+
     def test_quality_gate_passes_complete_match(self):
         match = quality_ready_match()
 
@@ -1184,6 +1235,9 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(response.json()["findings"], [])
         self.assertEqual(response.json()["quality_gate"], "pass")
         self.assertEqual(response.json()["quality_score_average"], 100.0)
+        self.assertGreaterEqual(len(response.json()["weapon_profile"]), 1)
+        self.assertIsNotNone(response.json()["role_profile"])
+        self.assertIn("first_damage_disadvantage_segments", response.json())
         self.assertEqual(
             self.client.get("/api/player-profiles/missing").status_code, 404
         )

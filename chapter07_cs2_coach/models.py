@@ -267,6 +267,49 @@ class ProfileFinding(BaseModel):
     confidence: Literal["high", "medium", "low"]
 
 
+class WeaponCategoryProfile(BaseModel):
+    category: Literal[
+        "sniper", "rifle", "smg", "pistol", "shotgun", "lmg", "other"
+    ]
+    contacts: int = Field(ge=0)
+    resolved: int = Field(ge=0)
+    kills: int = Field(ge=0)
+    deaths: int = Field(ge=0)
+    disengaged: int = Field(ge=0)
+    contact_share: float = Field(ge=0, le=1)
+    kill_rate: float | None = Field(default=None, ge=0, le=1)
+    first_damage_rate: float | None = Field(default=None, ge=0, le=1)
+    t_resolved: int = Field(ge=0)
+    t_kill_rate: float | None = Field(default=None, ge=0, le=1)
+    ct_resolved: int = Field(ge=0)
+    ct_kill_rate: float | None = Field(default=None, ge=0, le=1)
+
+
+class RoleProfile(BaseModel):
+    role: Literal[
+        "primary_awper",
+        "hybrid_awper",
+        "rifle_initiator",
+        "rifler",
+        "mixed",
+        "insufficient_evidence",
+    ]
+    confidence: Literal["high", "medium", "low"]
+    evidence: list[str] = Field(min_length=1, max_length=8)
+    caveats: list[str] = Field(default_factory=list, max_length=6)
+
+
+class FirstDamageDisadvantageSegment(BaseModel):
+    dimension: Literal["weapon", "side", "location", "distance"]
+    value: str = Field(min_length=1, max_length=80)
+    own_first_resolved: int = Field(ge=0)
+    own_first_kill_rate: float = Field(ge=0, le=1)
+    opponent_first_resolved: int = Field(ge=0)
+    opponent_first_kill_rate: float = Field(ge=0, le=1)
+    conversion_gap: float = Field(ge=-1, le=1)
+    confidence: Literal["high", "medium", "low"]
+
+
 class PlayerProfileResponse(BaseModel):
     player_name: str = Field(min_length=1, max_length=80)
     player_steamid: str = Field(min_length=1, max_length=32)
@@ -283,6 +326,13 @@ class PlayerProfileResponse(BaseModel):
     quality_score_average: float | None = Field(default=None, ge=0, le=100)
     quality_gate: Literal["pass", "review", "not_evaluated"] = "not_evaluated"
     quality_warnings: list[str] = Field(default_factory=list, max_length=20)
+    weapon_profile: list[WeaponCategoryProfile] = Field(
+        default_factory=list, max_length=7
+    )
+    role_profile: RoleProfile | None = None
+    first_damage_disadvantage_segments: list[FirstDamageDisadvantageSegment] = Field(
+        default_factory=list, max_length=8
+    )
 
 
 class DemoJobResponse(BaseModel):

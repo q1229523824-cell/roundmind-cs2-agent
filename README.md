@@ -45,6 +45,7 @@ render.yaml           Render Blueprint
 - 默认使用确定性 Planner，不产生模型调用费用；
 - Dust2 报告会用地图、阵营、点位、问题和比赛证据检索本地战术知识，并返回来源；
 - 为每次死亡前接战生成 0—100 风险评分卡，列出判断因素、更优动作与知识依据；
+- 基于完整交火生成武器分布、步枪/主狙/混合角色画像，并按武器、阵营、点位和距离拆解被先手伤害后的转化差距；
 - 可选 DeepSeek Planner，但只有显式启用时才会发送必要统计和问题。
 
 ## 本地启动
@@ -135,6 +136,7 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 生成画像前会自动执行数据质量门禁：失败比赛不参与聚合，需复核比赛会降低画像置信度，响应会明确返回
 来源、采用、复核与拒绝的场次数，避免把解析缺失误判成长期习惯。
 设计与置信度门槛见 `docs/player-profile.md`。
+武器分类、角色阈值和被先手伤害切片见 `docs/weapon-role-profile.md`。
 本地多 Demo 可使用 `python -m chapter07_cs2_coach.profile_cli` 批量生成画像，重复比赛会按 `match_id` 去重。
 
 在把新 Demo 纳入画像前，建议先运行 `python -m chapter07_cs2_coach.quality_cli`。质量门禁会检查击杀/死亡
