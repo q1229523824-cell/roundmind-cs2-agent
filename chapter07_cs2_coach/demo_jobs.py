@@ -40,6 +40,7 @@ class _DemoJob:
     question: str
     path: Path | None = None
     object_key: str | None = None
+    owner_id: str | None = None
     status: str = "queued"
     progress: int = 10
     match: MatchRecord | None = None
@@ -82,6 +83,7 @@ class DemoJobManager:
         player_name: str | None = None,
         player_steamid: str | None = None,
         question: str,
+        owner_id: str | None = None,
     ) -> DemoJobResponse:
         job = _DemoJob(
             job_id=uuid4().hex,
@@ -90,6 +92,7 @@ class DemoJobManager:
             player_name=player_name,
             player_steamid=player_steamid,
             question=question,
+            owner_id=owner_id,
         )
         self._enqueue(job)
         return self.get(job.job_id)
@@ -102,6 +105,7 @@ class DemoJobManager:
         player_name: str | None = None,
         player_steamid: str | None = None,
         question: str,
+        owner_id: str | None = None,
     ) -> DemoJobResponse:
         """把已校验上传转入对象存储，再创建只引用对象键的任务。"""
 
@@ -115,6 +119,7 @@ class DemoJobManager:
                 player_name=player_name,
                 player_steamid=player_steamid,
                 question=question,
+                owner_id=owner_id,
             )
             self._enqueue(job)
             return self.get(job.job_id)
@@ -130,10 +135,13 @@ class DemoJobManager:
         player_name: str,
         player_steamid: str | None,
         question: str,
+        owner_id: str | None = None,
     ) -> DemoJobResponse:
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
+                raise KeyError(job_id)
+            if owner_id is not None and job.owner_id != owner_id:
                 raise KeyError(job_id)
             if job.status != "awaiting_player":
                 raise DemoJobStateError("这个 Demo 任务当前不等待玩家选择。")
@@ -162,10 +170,12 @@ class DemoJobManager:
         self._executor.submit(self._run, job_id)
         return self.get(job_id)
 
-    def get(self, job_id: str) -> DemoJobResponse:
+    def get(self, job_id: str, owner_id: str | None = None) -> DemoJobResponse:
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
+                raise KeyError(job_id)
+            if owner_id is not None and job.owner_id != owner_id:
                 raise KeyError(job_id)
             return DemoJobResponse(
                 job_id=job.job_id,
@@ -223,10 +233,11 @@ class DemoJobManager:
                 match = self._parser.parse(path, player_name, player_steamid)
             with self._lock:
                 job.progress = 80
-            self._runtime.add_match(match)
+            self._runtime.add_match(match, job.owner_id)
             analysis = self._runtime.analyze(
                 match_id=match.match_id,
                 question=job.question,
+                owner_id=job.owner_id,
             )
             with self._lock:
                 job.match = match

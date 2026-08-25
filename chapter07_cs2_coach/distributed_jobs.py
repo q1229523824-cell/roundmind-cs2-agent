@@ -46,10 +46,11 @@ class DistributedDemoJob(BaseModel):
     match: MatchRecord | None = None
     analysis: AnalysisResponse | None = None
     error: str | None = None
+    owner_id: str | None = None
 
     def response(self) -> DemoJobResponse:
         return DemoJobResponse.model_validate(
-            self.model_dump(exclude={"object_key", "question"})
+            self.model_dump(exclude={"object_key", "question", "owner_id"})
         )
 
 
@@ -151,6 +152,7 @@ class CeleryDemoJobManager:
         player_name: str | None = None,
         player_steamid: str | None = None,
         question: str,
+        owner_id: str | None = None,
     ) -> DemoJobResponse:
         if self.store.pending_count() >= self.max_pending_jobs:
             raise DemoQueueFullError("Demo 解析队列已满，请稍后重试。")
@@ -162,6 +164,7 @@ class CeleryDemoJobManager:
             player_name=player_name,
             player_steamid=player_steamid,
             question=question,
+            owner_id=owner_id,
         )
         try:
             self.store.save(job)
@@ -171,9 +174,11 @@ class CeleryDemoJobManager:
             raise
         return job.response()
 
-    def get(self, job_id: str) -> DemoJobResponse:
+    def get(self, job_id: str, owner_id: str | None = None) -> DemoJobResponse:
         job = self.store.get(job_id)
         if job is None:
+            raise KeyError(job_id)
+        if owner_id is not None and job.owner_id != owner_id:
             raise KeyError(job_id)
         return job.response()
 
@@ -184,9 +189,12 @@ class CeleryDemoJobManager:
         player_name: str,
         player_steamid: str | None,
         question: str,
+        owner_id: str | None = None,
     ) -> DemoJobResponse:
         job = self.store.get(job_id)
         if job is None:
+            raise KeyError(job_id)
+        if owner_id is not None and job.owner_id != owner_id:
             raise KeyError(job_id)
         if job.status != "awaiting_player":
             raise DemoJobStateError("这个 Demo 任务当前不等待玩家选择。")
@@ -267,11 +275,13 @@ def parse_demo_job(
             raise DemoParseError("尚未选择要复盘的玩家。")
         with object_store.materialize(job.object_key) as path:
             match = parser.parse(path, job.player_name, job.player_steamid)
-        runtime.add_match(match)
+        runtime.add_match(match, job.owner_id)
         job.progress = 80
         store.save(job)
         job.match = match
-        job.analysis = runtime.analyze(match_id=match.match_id, question=job.question)
+        job.analysis = runtime.analyze(
+            match_id=match.match_id, question=job.question, owner_id=job.owner_id
+        )
         job.status, job.progress = "completed", 100
         store.save(job)
     except DemoParseError as error:
