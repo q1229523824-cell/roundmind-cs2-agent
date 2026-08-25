@@ -43,6 +43,7 @@ from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.situation_state import build_situation_state
+from chapter07_cs2_coach.situation_audit import audit_situation_coverage
 from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
 from chapter07_cs2_coach.training_goals import build_training_goals
 from chapter07_cs2_coach.weapon_role_profile import (
@@ -839,6 +840,76 @@ class CS2CoachToolTests(unittest.TestCase):
         self.assertEqual(goals[0].latest_value, 0.5)
         self.assertEqual(goals[0].status, "achieved")
         self.assertEqual(profile.training_goals, goals)
+
+    def test_training_goals_do_not_turn_stronger_unready_support_into_weakness(self):
+        def episode(index: int, ready: bool, death: bool) -> ContactEpisode:
+            return ContactEpisode(
+                round_number=3,
+                start_tick=3000 + index * 10,
+                end_tick=3005 + index * 10,
+                location="LongA",
+                side="T",
+                first_damage_by_player=False,
+                damage_dealt=20 if death else 100,
+                damage_taken=100 if death else 20,
+                outcome="death" if death else "kill",
+                duration_seconds=1,
+                weapon="AK-47",
+                health_before_contact=100,
+                armor_before_contact=100,
+                alive_teammates=3,
+                support_ready_teammates_proxy=1 if ready else 0,
+            )
+
+        contacts = [
+            episode(index, ready=True, death=index < 6) for index in range(10)
+        ] + [
+            episode(index + 10, ready=False, death=index < 2) for index in range(10)
+        ]
+        match = SAMPLE_MATCH.model_copy(update={"contact_episodes": contacts})
+
+        goals = build_training_goals([match])
+
+        self.assertNotIn("support-unready-survival", {item.key for item in goals})
+
+    def test_situation_audit_reports_real_coverage_gaps(self):
+        complete_case = next(
+            item.engagement for item in load_evaluation_cases()
+            if item.id == "t-postplant-overextension"
+        ).model_copy(update={
+            "round_elapsed_seconds": 70,
+            "support_ready_teammates_proxy": 0,
+            "smoke_between_player_and_nearest_teammate": False,
+        })
+        incomplete = complete_case.model_copy(update={
+            "round_number": 2,
+            "tick": 2000,
+            "round_elapsed_seconds": None,
+            "bomb_state": "unknown",
+            "nearest_teammate_distance": None,
+            "support_ready_teammates_proxy": None,
+            "smoke_between_player_and_nearest_teammate": None,
+        })
+        match = MatchRecord.model_validate({
+            "match_id": "coverage-test",
+            "player_name": "Learner",
+            "map_name": "de_dust2",
+            "team_name": "A",
+            "opponent_name": "B",
+            "team_score": 0,
+            "opponent_score": 2,
+            "rounds": [
+                {"number": 1, "side": "T", "won": False},
+                {"number": 2, "side": "T", "won": False},
+            ],
+            "engagements": [complete_case.model_dump(), incomplete.model_dump()],
+        })
+
+        report = audit_situation_coverage([match])
+
+        self.assertEqual(report.engagement_count, 2)
+        self.assertEqual(report.low_information_engagements, 1)
+        self.assertTrue(report.warnings)
 
     def test_dust2_knowledge_base_has_unique_valid_entries(self):
         entries = load_knowledge()

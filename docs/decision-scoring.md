@@ -44,3 +44,15 @@
 
 下一版应邀请有经验的玩家在不看系统输出的情况下标注真实回合，并拆分开发集与盲测集；
 比较系统与人工标注的等级一致率，同时记录争议样本，避免仅为已有公式构造“必然通过”的测试。
+
+## 真实 Demo 覆盖审计
+
+```powershell
+python -m chapter07_cs2_coach.situation_cli `
+  --demo-dir ".agent_data\demos" `
+  --player-steamid "7656..." `
+  --output ".agent_data\audits\situation-coverage.json"
+```
+
+报告聚合阶段、人数、支援、炸弹目标和移动节奏，并统计信息完整度。若大量接战缺少回合时间、支援条件，
+或落在炸弹已经结算的事件窗口，报告会明确告警，避免评分在缺失数据上表现得过度自信。

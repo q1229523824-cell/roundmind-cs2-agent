@@ -69,7 +69,7 @@ def _goal(
 
 def build_training_goals(matches: list[MatchRecord]) -> list[TrainingGoal]:
     """生成最多三个带基线、目标和趋势的训练闭环。"""
-    candidates = [
+    candidates: list[TrainingGoal | None] = [
         _goal(
             matches,
             key="opponent-first-damage-survival",
@@ -79,20 +79,39 @@ def build_training_goals(matches: list[MatchRecord]) -> list[TrainingGoal]:
         ),
         _goal(
             matches,
-            key="support-unready-survival",
-            focus="进入交火前确认队友具备真实补枪条件",
-            metric="支援未就绪交火死亡率",
-            predicate=lambda item: item.support_ready_teammates_proxy == 0,
-        ),
-        _goal(
-            matches,
             key="rifle-contact-survival",
             focus="提高步枪交火中的生存与击杀转化",
             metric="步枪已解决交火死亡率",
             predicate=lambda item: item.weapon.lower() not in {"awp", "ssg08"},
         ),
     ]
-    return [item for item in candidates if item is not None][:3]
+    unready_rate, unready_count = _death_rate(
+        matches, lambda item: item.support_ready_teammates_proxy == 0
+    )
+    ready_rate, ready_count = _death_rate(
+        matches,
+        lambda item: (item.support_ready_teammates_proxy or 0) > 0,
+    )
+    if (
+        unready_rate is not None
+        and ready_rate is not None
+        and unready_count >= 8
+        and ready_count >= 8
+        and unready_rate >= ready_rate + 0.10
+    ):
+        candidates.append(_goal(
+            matches,
+            key="support-unready-survival",
+            focus="进入交火前确认队友具备真实补枪条件",
+            metric="支援未就绪交火死亡率",
+            predicate=lambda item: item.support_ready_teammates_proxy == 0,
+        ))
+    goals = [item for item in candidates if item is not None]
+    priority = {"regressing": 0, "baseline": 1, "improving": 2, "achieved": 3, "insufficient_data": 4}
+    return sorted(
+        goals,
+        key=lambda item: (priority[item.status], -item.baseline_value, item.key),
+    )[:3]
 
 
 __all__ = ["build_training_goals"]
