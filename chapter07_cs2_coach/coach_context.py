@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from chapter07_cs2_coach.contact_decision_scoring import build_contact_decision_cards
 from chapter07_cs2_coach.knowledge_base import retrieve_tactical_knowledge
 from chapter07_cs2_coach.models import (
     Evidence,
@@ -69,6 +70,20 @@ class ContextTrainingPriority(BaseModel):
     confidence: Literal["high", "medium", "low"]
 
 
+class ContextContactDecision(BaseModel):
+    """给语言模型的有界候选动作比较，不包含真实玩家标识。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    match_ref: str = Field(pattern=r"^match_\d{2}$")
+    round_number: int = Field(ge=1, le=100)
+    observed_outcome: Literal["kill", "death", "disengaged"]
+    condition_risk_score: int = Field(ge=0, le=100)
+    preferred_action: str = Field(min_length=1, max_length=80)
+    candidate_risks: dict[str, int] = Field(min_length=2, max_length=4)
+    confidence: Literal["high", "medium", "low"]
+
+
 class LLMCoachContextPackage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -88,6 +103,9 @@ class LLMCoachContextPackage(BaseModel):
     knowledge_references: list[KnowledgeReference] = Field(max_length=3)
     training_priorities: list[ContextTrainingPriority] = Field(max_length=3)
     training_goals: list[TrainingGoal] = Field(default_factory=list, max_length=3)
+    contact_decisions: list[ContextContactDecision] = Field(
+        default_factory=list, max_length=6
+    )
     response_guardrails: list[str] = Field(min_length=1, max_length=8)
 
 
@@ -243,6 +261,40 @@ def _training_priorities(
     return priorities[:3]
 
 
+def _contact_decisions(matches: list[MatchRecord]) -> list[ContextContactDecision]:
+    rows: list[ContextContactDecision] = []
+    for match_index, match in enumerate(matches, start=1):
+        for card in build_contact_decision_cards(match, limit=3):
+            rows.append(
+                ContextContactDecision(
+                    match_ref=f"match_{match_index:02d}",
+                    round_number=card.round_number,
+                    observed_outcome=card.observed_outcome,
+                    condition_risk_score=card.condition_risk_score,
+                    preferred_action=card.preferred_action,
+                    candidate_risks={
+                        item.action: item.risk_score
+                        for item in card.candidate_actions
+                    },
+                    confidence=card.confidence,
+                )
+            )
+    rows.sort(key=lambda item: (-item.condition_risk_score, item.match_ref, item.round_number))
+    selected: list[ContextContactDecision] = []
+    outcomes: set[str] = set()
+    for row in rows:
+        if row.observed_outcome not in outcomes:
+            selected.append(row)
+            outcomes.add(row.observed_outcome)
+    for row in rows:
+        if row in selected:
+            continue
+        selected.append(row)
+        if len(selected) >= 6:
+            break
+    return selected[:6]
+
+
 def build_coach_context(
     matches: list[MatchRecord],
     *,
@@ -285,11 +337,13 @@ def build_coach_context(
             profile.first_damage_disadvantage_segments, cases
         ),
         training_goals=profile.training_goals,
+        contact_decisions=_contact_decisions(selected),
         response_guardrails=[
             "只引用包内事实，不推测未记录的语音、战术分工或玩家意图。",
             "低置信度切片只能作为待复核信号，不能表述为稳定弱点。",
             "相关性不等于因果；建议必须附带样本量、回合证据或知识 ID。",
             "每次最多给出三个训练重点，并优先复用玩家自己的成功案例。",
+            "候选动作风险只来自交火开始条件；observed_outcome 仅用于赛后校验，不能反向解释评分。",
         ],
     )
     if len(package.model_dump_json().encode("utf-8")) > MAX_CONTEXT_BYTES:

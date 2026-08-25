@@ -254,6 +254,51 @@ class DecisionCard(BaseModel):
     situation_state: "RoundSituationState | None" = None
 
 
+class ContactCandidateAction(BaseModel):
+    """只基于交火开始时可见条件评估的候选动作。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal[
+        "continue_contact",
+        "disengage_reset",
+        "wait_for_support",
+        "create_utility_condition",
+    ]
+    label: str = Field(min_length=1, max_length=80)
+    risk_score: int = Field(ge=0, le=100)
+    rationale: str = Field(min_length=1, max_length=300)
+    assumptions: list[str] = Field(default_factory=list, max_length=3)
+    recommended: bool = False
+
+
+class ContactDecisionCard(BaseModel):
+    """成功、死亡和脱离交火共用的事前风险与动作比较。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    round_number: int = Field(ge=1, le=100)
+    tick: int = Field(ge=0)
+    location: str = Field(min_length=1, max_length=80)
+    side: Literal["T", "CT"]
+    observed_outcome: Literal["kill", "death", "disengaged"]
+    weapon: str = Field(min_length=1, max_length=80)
+    first_damage_by_player: bool
+    condition_risk_score: int = Field(ge=0, le=100)
+    risk_level: Literal["high", "medium", "low"]
+    factors: list[str] = Field(min_length=1, max_length=12)
+    candidate_actions: list[ContactCandidateAction] = Field(
+        min_length=2, max_length=4
+    )
+    preferred_action: Literal[
+        "continue_contact",
+        "disengage_reset",
+        "wait_for_support",
+        "create_utility_condition",
+    ]
+    confidence: Literal["high", "medium", "low"]
+
+
 class RoundSituationState(BaseModel):
     """把接战快照转换为可解释的局势特征，供评分与模型共同使用。"""
 
@@ -309,6 +354,7 @@ class AnalysisResponse(BaseModel):
     execution_trace: list[str]
     knowledge_references: list[KnowledgeReference] = Field(default_factory=list)
     decision_cards: list[DecisionCard] = Field(default_factory=list)
+    contact_decision_cards: list[ContactDecisionCard] = Field(default_factory=list)
     personal_contact_contrasts: list[PersonalContactContrast] = Field(
         default_factory=list
     )

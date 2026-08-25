@@ -15,12 +15,14 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_deepseek import ChatDeepSeek
 from langgraph.graph import END, START, StateGraph
 
+from chapter07_cs2_coach.contact_decision_scoring import build_contact_decision_cards
 from chapter07_cs2_coach.decision_scoring import build_decision_cards
 from chapter07_cs2_coach.knowledge_base import (
     retrieve_for_engagement,
     retrieve_tactical_knowledge,
 )
 from chapter07_cs2_coach.models import (
+    ContactDecisionCard,
     DecisionCard,
     Evidence,
     KnowledgeReference,
@@ -42,6 +44,7 @@ class CoachState(TypedDict, total=False):
     confidence: str
     knowledge_references: list[KnowledgeReference]
     decision_cards: list[DecisionCard]
+    contact_decision_cards: list[ContactDecisionCard]
 
 
 class ToolPlanner(Protocol):
@@ -189,6 +192,7 @@ class CS2CoachWorkflow:
             "iteration": 0,
             "knowledge_references": [],
             "decision_cards": [],
+            "contact_decision_cards": [],
         }
 
     def _planner(self, state: CoachState) -> CoachState:
@@ -295,6 +299,21 @@ class CS2CoachWorkflow:
                         f"- R{card.round_number} {card.location}：风险 {card.risk_score}/100；"
                         f"{card.better_action}"
                     )
+            contact_cards = state.get("contact_decision_cards", [])
+            if contact_cards:
+                labels = {
+                    "continue_contact": "继续当前接触",
+                    "disengage_reset": "脱离并重置枪线",
+                    "wait_for_support": "等待支援条件",
+                    "create_utility_condition": "先创造道具条件",
+                }
+                lines.extend(["", "全结果交火决策比较（评分不使用最终结果）："])
+                for card in contact_cards[:3]:
+                    lines.append(
+                        f"- R{card.round_number} {card.location}：事前风险 "
+                        f"{card.condition_risk_score}/100；优先 "
+                        f"{labels[card.preferred_action]}（赛后结果：{card.observed_outcome}）。"
+                    )
             answer = "\n".join(lines)
         trace = list(state.get("execution_trace", []))
         trace.append("reporter: 已生成带回合引用的中文复盘")
@@ -331,11 +350,18 @@ class CS2CoachWorkflow:
     @staticmethod
     def _decision_scorer(state: CoachState) -> CoachState:
         cards = build_decision_cards(state["match"])
+        contact_cards = build_contact_decision_cards(state["match"])
         trace = list(state.get("execution_trace", []))
         trace.append(
-            f"decision_scorer: 为 {len(cards)} 次关键接战生成风险评分卡"
+            f"decision_scorer: 生成 {len(cards)} 张死亡决策卡，并从全部 "
+            f"{len(state['match'].contact_episodes)} 次交火中选出 "
+            f"{len(contact_cards)} 张无结果泄漏比较卡"
         )
-        return {"decision_cards": cards, "execution_trace": trace}
+        return {
+            "decision_cards": cards,
+            "contact_decision_cards": contact_cards,
+            "execution_trace": trace,
+        }
 
 
 __all__ = [

@@ -19,6 +19,10 @@ from chapter07_cs2_coach.contact_analysis import (
     evaluate_contact_coverage,
     find_contact_hotspots,
 )
+from chapter07_cs2_coach.contact_decision_scoring import (
+    build_contact_decision_cards,
+    score_contact_decision,
+)
 from chapter07_cs2_coach.coach_context import MAX_CONTEXT_BYTES, build_coach_context
 from chapter07_cs2_coach.coach_llm import CoachService
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
@@ -484,6 +488,7 @@ class CS2CoachToolTests(unittest.TestCase):
         self.assertEqual(package.sample.matches, 3)
         self.assertGreaterEqual(len(package.evidence_cases), 1)
         self.assertGreaterEqual(len(package.training_priorities), 1)
+        self.assertGreaterEqual(len(package.contact_decisions), 1)
         self.assertTrue(
             all(item.match_ref.startswith("match_") for item in package.evidence_cases)
         )
@@ -751,6 +756,90 @@ class CS2CoachToolTests(unittest.TestCase):
         cards = build_decision_cards(match)
 
         self.assertEqual([card.round_number for card in cards], [6, 3])
+
+    def test_contact_decision_score_does_not_leak_observed_outcome(self):
+        base = ContactEpisode(
+            round_number=1, start_tick=100, end_tick=140, location="LongA",
+            side="T", first_damage_by_player=False, damage_dealt=0,
+            damage_taken=100, outcome="death", duration_seconds=0.6,
+            weapon="ak47", health_before_contact=55, armor_before_contact=80,
+            opponent_distance=850, alive_teammates=3,
+            nearest_teammate_distance=1200, player_view_angle_error=70,
+            player_facing_opponent=False, support_ready_teammates_proxy=0,
+        )
+        cards = [
+            score_contact_decision(
+                base.model_copy(
+                    update={
+                        "outcome": outcome,
+                        "damage_dealt": 100 if outcome == "kill" else 0,
+                        "damage_taken": 100 if outcome == "death" else 15,
+                        "duration_seconds": duration,
+                        "end_tick": end_tick,
+                    }
+                )
+            )
+            for outcome, duration, end_tick in (
+                ("kill", 0.2, 110),
+                ("death", 0.8, 150),
+                ("disengaged", 3.0, 300),
+            )
+        ]
+
+        signatures = {
+            (
+                card.condition_risk_score,
+                card.preferred_action,
+                tuple((item.action, item.risk_score) for item in card.candidate_actions),
+            )
+            for card in cards
+        }
+        self.assertEqual(len(signatures), 1)
+        self.assertEqual(
+            {card.observed_outcome for card in cards},
+            {"kill", "death", "disengaged"},
+        )
+
+    def test_opponent_first_contact_prefers_disengage_reset(self):
+        episode = quality_ready_match().contact_episodes[1].model_copy(
+            update={
+                "health_before_contact": 45,
+                "alive_teammates": 3,
+                "support_ready_teammates_proxy": 0,
+                "player_view_angle_error": 80,
+            }
+        )
+
+        card = score_contact_decision(episode)
+        risks = {item.action: item.risk_score for item in card.candidate_actions}
+
+        self.assertEqual(card.preferred_action, "disengage_reset")
+        self.assertLess(risks["disengage_reset"], risks["continue_contact"])
+
+    def test_contact_decision_selection_keeps_all_observed_outcomes(self):
+        base_match = quality_ready_match()
+        base = base_match.contact_episodes[0]
+        contacts = [
+            base.model_copy(
+                update={
+                    "start_tick": 100 + index * 20,
+                    "end_tick": 110 + index * 20,
+                    "outcome": outcome,
+                }
+            )
+            for index, outcome in enumerate(
+                ["kill", "kill", "death", "death", "disengaged", "disengaged"]
+            )
+        ]
+        match = base_match.model_copy(update={"contact_episodes": contacts})
+
+        cards = build_contact_decision_cards(match, limit=6)
+
+        self.assertEqual(len(cards), 6)
+        self.assertEqual(
+            {item.observed_outcome for item in cards},
+            {"kill", "death", "disengaged"},
+        )
 
     def test_decision_evaluation_dataset_passes(self):
         cases = load_evaluation_cases()
@@ -1457,6 +1546,7 @@ class CS2CoachWorkflowTests(unittest.TestCase):
 
         self.assertEqual(result.decision_cards[0].round_number, 3)
         self.assertEqual(result.decision_cards[0].risk_level, "high")
+        self.assertIsInstance(result.contact_decision_cards, list)
         self.assertIn("风险", result.answer)
         self.assertTrue(
             any("decision_scorer:" in step for step in result.execution_trace)
@@ -1618,6 +1708,7 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(body["tools_used"], ["opening_duels", "tradeability"])
         self.assertGreaterEqual(len(body["evidence"]), 1)
         self.assertIn("decision_cards", body)
+        self.assertIn("contact_decision_cards", body)
         self.assertIn("knowledge_references", body)
         self.assertIn("personal_contact_contrasts", body)
 

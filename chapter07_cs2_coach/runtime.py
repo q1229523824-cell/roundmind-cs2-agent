@@ -81,6 +81,7 @@ class CS2CoachRuntime:
             execution_trace=result.get("execution_trace", []),
             knowledge_references=result.get("knowledge_references", []),
             decision_cards=result.get("decision_cards", []),
+            contact_decision_cards=result.get("contact_decision_cards", []),
             personal_contact_contrasts=build_personal_contact_contrasts(match),
             confidence=result.get("confidence", "low"),
         )
