@@ -27,6 +27,10 @@ from chapter07_cs2_coach.coach_context import MAX_CONTEXT_BYTES, build_coach_con
 from chapter07_cs2_coach.coach_llm import CoachService
 from chapter07_cs2_coach.demo_jobs import DemoJobManager
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
+from chapter07_cs2_coach.database import (
+    SqlAlchemyMatchRepository,
+    normalize_database_url,
+)
 from chapter07_cs2_coach.decision_scoring import build_decision_cards, score_engagement
 from chapter07_cs2_coach.evaluation import (
     load_evaluation_cases,
@@ -404,6 +408,30 @@ def quality_ready_match(
 
 
 class CS2CoachToolTests(unittest.TestCase):
+    def test_sqlalchemy_repository_persists_and_updates_match_payload(self):
+        repository = SqlAlchemyMatchRepository(
+            "sqlite+pysqlite:///:memory:", create_schema=True
+        )
+        first = SAMPLE_MATCH.model_copy(update={"match_id": "persistent-match"})
+        updated = first.model_copy(update={"team_name": "Updated Team"})
+
+        repository.save(first)
+        repository.save(updated)
+
+        self.assertEqual(repository.backend_name, "sqlite")
+        self.assertEqual(repository.get(first.match_id), updated)
+        self.assertEqual(repository.list(), [updated])
+
+    def test_database_url_normalizes_render_postgres_scheme(self):
+        self.assertEqual(
+            normalize_database_url("postgres://user:pass@db.example/roundmind"),
+            "postgresql+psycopg://user:pass@db.example/roundmind",
+        )
+        self.assertEqual(
+            normalize_database_url("postgresql://user:pass@db.example/roundmind"),
+            "postgresql+psycopg://user:pass@db.example/roundmind",
+        )
+
     def test_llm_coach_accepts_only_whitelisted_citations(self):
         steamid = "76561198012345678"
         matches = [

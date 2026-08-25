@@ -47,6 +47,7 @@ render.yaml           Render Blueprint
 - 为每次死亡前接战生成 0—100 风险评分卡，列出判断因素、更优动作与知识依据；
 - 对击杀、死亡和主动脱离使用同一套事前条件评分，并比较继续接触、脱离重置、等待支援和创造道具条件；
 - 网页展示候选动作风险与成立前提，并允许匿名人工选择更合理动作，累计推荐一致率；
+- 可选 PostgreSQL 持久化：通过 SQLAlchemy Repository 保存完整比赛对象，Alembic 管理表结构迁移；
 - 基于完整交火生成武器分布、步枪/主狙/混合角色画像，并按武器、阵营、点位和距离拆解被先手伤害后的转化差距；
 - 可选 DeepSeek Planner，但只有显式启用时才会发送必要统计和问题。
 
@@ -56,6 +57,9 @@ render.yaml           Render Blueprint
 python -m pip install -r chapter07_cs2_coach/requirements.txt
 python -m chapter07_cs2_coach.local_server
 ```
+
+未配置 `DATABASE_URL` 时使用内存仓库；配置 PostgreSQL 后，容器启动时会先执行 Alembic 迁移，再启动
+FastAPI。数据库配置、迁移和回退方式见 `docs/postgresql-persistence.md`。
 
 访问：
 

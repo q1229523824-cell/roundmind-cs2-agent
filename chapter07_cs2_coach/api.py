@@ -81,6 +81,7 @@ def create_app(
             "status": "ok",
             "service": "roundmind-cs2-coach",
             "version": os.getenv("RENDER_GIT_COMMIT", "local")[:12],
+            "storage": runtime.repository.backend_name,
         }
 
     @app.get("/api/matches", response_model=list[MatchRecord], tags=["matches"])

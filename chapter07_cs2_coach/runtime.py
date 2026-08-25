@@ -5,6 +5,10 @@ from __future__ import annotations
 from threading import RLock
 
 from chapter07_cs2_coach.coach_llm import CoachService
+from chapter07_cs2_coach.database import (
+    MatchRepositoryProtocol,
+    repository_from_environment,
+)
 from chapter07_cs2_coach.models import (
     AnalysisResponse,
     CoachChatResponse,
@@ -22,7 +26,9 @@ from chapter07_cs2_coach.workflow import (
 
 
 class MatchRepository:
-    """MVP 使用的进程内仓库；以后可替换 PostgreSQL 而不改变 Agent。"""
+    """本地和测试使用的进程内仓库。"""
+
+    backend_name = "memory"
 
     def __init__(self) -> None:
         self._matches: dict[str, MatchRecord] = {}
@@ -46,18 +52,20 @@ class CS2CoachRuntime:
     def __init__(
         self,
         *,
-        repository: MatchRepository | None = None,
+        repository: MatchRepositoryProtocol | None = None,
         workflow: CS2CoachWorkflow | None = None,
         coach_service: CoachService | None = None,
     ) -> None:
-        self.repository = repository or MatchRepository()
+        self.repository: MatchRepositoryProtocol = repository or MatchRepository()
         self.workflow = workflow or CS2CoachWorkflow()
         self.coach_service = coach_service or CoachService()
 
     @classmethod
     def create(cls, *, use_llm_planner: bool = False) -> "CS2CoachRuntime":
         planner = DeepSeekToolPlanner() if use_llm_planner else RuleBasedToolPlanner()
+        repository = repository_from_environment() or MatchRepository()
         runtime = cls(
+            repository=repository,
             workflow=CS2CoachWorkflow(planner),
             coach_service=CoachService.from_environment(),
         )
