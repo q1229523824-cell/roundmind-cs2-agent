@@ -28,6 +28,7 @@ from chapter07_cs2_coach.demo_jobs import (
     DemoJobStateError,
     DemoQueueFullError,
 )
+from chapter07_cs2_coach.distributed_jobs import distributed_manager_from_environment
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 
 
@@ -61,7 +62,12 @@ def create_app(
         description="用受控 Agent 工作流把比赛事实转化为可追溯的训练建议。",
     )
     app.state.runtime = runtime
-    app.state.demo_jobs = demo_jobs or DemoJobManager(runtime)
+    if demo_jobs is not None:
+        app.state.demo_jobs = demo_jobs
+    elif os.getenv("ROUNDMIND_JOB_BACKEND", "local").strip().lower() == "celery":
+        app.state.demo_jobs = distributed_manager_from_environment()
+    else:
+        app.state.demo_jobs = DemoJobManager(runtime)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -83,6 +89,9 @@ def create_app(
             "version": os.getenv("RENDER_GIT_COMMIT", "local")[:12],
             "storage": runtime.repository.backend_name,
             "demo_storage": app.state.demo_jobs.object_store.backend_name,
+            "job_backend": getattr(app.state.demo_jobs, "store", None).backend_name
+            if hasattr(app.state.demo_jobs, "store")
+            else "memory",
         }
 
     @app.get("/api/matches", response_model=list[MatchRecord], tags=["matches"])

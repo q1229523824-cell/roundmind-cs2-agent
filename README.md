@@ -49,6 +49,7 @@ render.yaml           Render Blueprint
 - 网页展示候选动作风险与成立前提，并允许匿名人工选择更合理动作，累计推荐一致率；
 - 可选 PostgreSQL 持久化：通过 SQLAlchemy Repository 保存完整比赛对象，Alembic 管理表结构迁移；
 - Demo 存储可在本地目录与 S3/Cloudflare R2 间切换，任务只传递随机对象键，解析后自动删除；
+- 可选 Redis + Celery 分布式任务：API 只投递 job_id，独立 Worker 解析大 Demo 并共享任务进度；
 - 基于完整交火生成武器分布、步枪/主狙/混合角色画像，并按武器、阵营、点位和距离拆解被先手伤害后的转化差距；
 - 可选 DeepSeek Planner，但只有显式启用时才会发送必要统计和问题。
 
@@ -62,6 +63,7 @@ python -m chapter07_cs2_coach.local_server
 未配置 `DATABASE_URL` 时使用内存仓库；配置 PostgreSQL 后，容器启动时会先执行 Alembic 迁移，再启动
 FastAPI。数据库配置、迁移和回退方式见 `docs/postgresql-persistence.md`。
 对象存储配置与安全边界见 `docs/object-storage.md`；未配置时保持本地临时存储。
+Redis/Celery 的进程职责、配置和 Worker 命令见 `docs/distributed-jobs.md`。
 
 访问：
 
