@@ -5,7 +5,7 @@ services:
     dockerfilePath: ./chapter07_cs2_coach/Dockerfile
     dockerContext: .
     plan: free
-    healthCheckPath: /health
+    healthCheckPath: /ready
     envVars:
       - key: ROUNDMIND_CORS_ORIGINS
         value: https://roundmind-cs2-coach.kclespark.chatgpt.site
@@ -16,6 +16,10 @@ services:
       # 第一阶段保持单进程解析，避免 Redis/Celery Worker 的额外费用。
       - key: ROUNDMIND_JOB_BACKEND
         value: local
+      - key: ROUNDMIND_MAX_PENDING_JOBS
+        value: "2"
+      - key: ROUNDMIND_DEMO_WORKERS
+        value: "1"
       - key: ROUNDMIND_OBJECT_STORAGE
         value: local
       - key: ROUNDMIND_AUTH_REQUIRED

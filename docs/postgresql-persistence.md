@@ -11,7 +11,8 @@
 - 未设置 `DATABASE_URL`：使用线程安全的内存仓库；
 - 设置 `DATABASE_URL`：使用 `SqlAlchemyMatchRepository`；
 - Docker 启动时只有检测到 `DATABASE_URL` 才运行 Alembic；
-- `/health` 的 `storage` 字段会返回 `memory`、`sqlite` 或 `postgresql`。
+- `/health` 的 `storage` 字段会返回 `memory`、`sqlite` 或 `postgresql`；
+- `/ready` 会执行 `SELECT 1`，数据库不可达时返回 503，避免平台继续向故障实例分流。
 
 生产配置示例只写变量名，不要把真实账号密码提交到 Git：
 

@@ -144,6 +144,13 @@ class CeleryDemoJobManager:
         self.dispatcher = dispatcher
         self.max_pending_jobs = max_pending_jobs
 
+    def ensure_capacity(self) -> None:
+        if self.store.pending_count() >= self.max_pending_jobs:
+            raise DemoQueueFullError("Demo 解析队列已满，请稍后重试。")
+
+    def pending_count(self) -> int:
+        return self.store.pending_count()
+
     def submit_upload(
         self,
         *,
@@ -154,8 +161,7 @@ class CeleryDemoJobManager:
         question: str,
         owner_id: str | None = None,
     ) -> DemoJobResponse:
-        if self.store.pending_count() >= self.max_pending_jobs:
-            raise DemoQueueFullError("Demo 解析队列已满，请稍后重试。")
+        self.ensure_capacity()
         key = self.object_store.put(path)
         job = DistributedDemoJob(
             job_id=uuid4().hex,

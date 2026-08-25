@@ -7,7 +7,17 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -52,6 +62,17 @@ UPLOAD_CHUNK_BYTES = 1024 * 1024
 DEFAULT_QUESTION = "请综合分析这场比赛，找出最值得优先改进的问题。"
 
 
+def _bounded_positive_int(name: str, default: int, maximum: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise RuntimeError(f"{name} 必须是整数。") from error
+    if not 1 <= value <= maximum:
+        raise RuntimeError(f"{name} 必须在 1 到 {maximum} 之间。")
+    return value
+
+
 def _cors_origins() -> list[str]:
     configured = os.getenv("ROUNDMIND_CORS_ORIGINS", "")
     if configured.strip():
@@ -81,7 +102,28 @@ def create_app(
     elif os.getenv("ROUNDMIND_JOB_BACKEND", "local").strip().lower() == "celery":
         app.state.demo_jobs = distributed_manager_from_environment()
     else:
-        app.state.demo_jobs = DemoJobManager(runtime)
+        app.state.demo_jobs = DemoJobManager(
+            runtime,
+            max_pending_jobs=_bounded_positive_int(
+                "ROUNDMIND_MAX_PENDING_JOBS", 2, 100
+            ),
+            max_workers=_bounded_positive_int("ROUNDMIND_DEMO_WORKERS", 1, 8),
+        )
+    @app.middleware("http")
+    async def reject_demo_upload_when_full(request: Request, call_next):
+        # 中间件在 multipart 解析前运行，避免队列已满时仍把大文件落到临时磁盘。
+        if request.method == "POST" and request.url.path == "/api/demo-jobs":
+            try:
+                app.state.demo_jobs.ensure_capacity()
+            except DemoQueueFullError as error:
+                return JSONResponse(
+                    status_code=429,
+                    content={"detail": str(error)},
+                    headers={"Retry-After": "30"},
+                )
+        return await call_next(request)
+
+    # 后添加的 CORS 位于准入中间件外层，429 也能被跨域前端正常读取。
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
@@ -137,7 +179,7 @@ def create_app(
         return FileResponse(WEB_DIRECTORY / "index.html")
 
     @app.get("/health", tags=["system"])
-    def health() -> dict[str, str]:
+    def health() -> dict[str, str | int]:
         return {
             "status": "ok",
             "service": "roundmind-cs2-coach",
@@ -148,7 +190,20 @@ def create_app(
             if hasattr(app.state.demo_jobs, "store")
             else "memory",
             "auth": "required" if app.state.auth.enabled else "disabled",
+            "pending_jobs": app.state.demo_jobs.pending_count(),
+            "max_pending_jobs": app.state.demo_jobs.max_pending_jobs,
         }
+
+    @app.get("/ready", tags=["system"])
+    def ready() -> dict[str, str]:
+        try:
+            runtime.repository.check_connection()
+        except Exception as error:
+            raise HTTPException(
+                status_code=503,
+                detail="数据库暂时不可用。",
+            ) from error
+        return {"status": "ready", "storage": runtime.repository.backend_name}
 
     @app.get("/api/matches", response_model=list[MatchRecord], tags=["matches"])
     def list_matches(
@@ -199,6 +254,15 @@ def create_app(
         filename = Path(file.filename or "").name
         if not filename.lower().endswith(".dem"):
             raise HTTPException(status_code=400, detail="只接受 .dem 格式的 CS2 Demo。")
+
+        try:
+            app.state.demo_jobs.ensure_capacity()
+        except DemoQueueFullError as error:
+            raise HTTPException(
+                status_code=429,
+                detail=str(error),
+                headers={"Retry-After": "30"},
+            ) from error
 
         temporary_path: Path | None = None
         size = 0

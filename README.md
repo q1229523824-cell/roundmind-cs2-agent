@@ -73,7 +73,8 @@ Redis/Celery 的进程职责、配置和 Worker 命令见 `docs/distributed-jobs
 
 - 网页：`http://127.0.0.1:8765`
 - Swagger：`http://127.0.0.1:8765/docs`
-- 健康检查：`http://127.0.0.1:8765/health`
+- 存活检查：`http://127.0.0.1:8765/health`
+- 就绪检查：`http://127.0.0.1:8765/ready`
 
 本地模式只监听 `127.0.0.1`。大文件经过本机回环地址传给 Python，不会上传到 Render。
 
@@ -100,7 +101,7 @@ npm run build
 ### Render 后端
 
 仓库根目录已经提供 `render.yaml`。在 Render 中使用 Blueprint 连接该仓库即可创建
-`roundmind-cs2-api`，健康检查路径为 `/health`。
+`roundmind-cs2-api`，依赖就绪检查路径为 `/ready`。
 
 最低成本生产部署（Sites + Render Free + Neon Free，暂不启用 Redis/Celery 与 R2）的逐项配置和验收方式见
 `docs/low-cost-production-deployment.md`。
@@ -160,7 +161,8 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 交火覆盖率、死亡快照覆盖率、重复事件、未知点位、关键上下文缺失和 SteamID，并输出 `pass/review/fail`。
 `fail` 的比赛不应更新长期画像，避免把解析器缺失误判为玩家习惯。详见 `docs/data-quality-gate.md`。
 
-`/health` 会返回 Render 当前部署的 Git 提交前 12 位，便于区分“代码已推送”和“新容器已上线”。
+`/health` 会返回 Render 当前部署的 Git 提交前 12 位、当前队列占用和容量；`/ready` 会实际执行最小数据库
+查询。这样既能区分“代码已推送”和“新容器已上线”，也不会在 PostgreSQL 断开时把实例误判为可接流量。
 
 单场分析还会为失败交火检索同阵营、同点位的个人成功样本，把“通用建议”补充为玩家自己已经做到过的
 成功基线；结构化结果位于 `personal_contact_contrasts`，设计边界见 `docs/personal-baseline.md`。

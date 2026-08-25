@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timezone
 from typing import Protocol
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, create_engine, select
+from sqlalchemy import JSON, DateTime, ForeignKey, Index, String, create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -19,6 +19,8 @@ class MatchOwnershipConflictError(RuntimeError):
 
 class MatchRepositoryProtocol(Protocol):
     backend_name: str
+
+    def check_connection(self) -> None: ...
 
     def save(self, match: MatchRecord, owner_id: str | None = None) -> MatchRecord: ...
 
@@ -131,6 +133,11 @@ class SqlAlchemyMatchRepository:
                 stored.payload = match.model_dump(mode="json")
                 stored.updated_at = now
         return match
+
+    def check_connection(self) -> None:
+        """执行最小查询，供就绪探针确认数据库真的可用。"""
+        with self.engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
 
     def get(self, match_id: str) -> MatchRecord | None:
         with Session(self.engine) as session:

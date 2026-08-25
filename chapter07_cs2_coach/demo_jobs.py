@@ -62,18 +62,35 @@ class DemoJobManager:
         executor: Executor | None = None,
         object_store: DemoObjectStoreProtocol | None = None,
         max_pending_jobs: int = 2,
+        max_workers: int = 1,
         player_selection_timeout_seconds: float = 15 * 60,
     ) -> None:
+        if max_pending_jobs < 1:
+            raise ValueError("max_pending_jobs 必须至少为 1。")
+        if max_workers < 1:
+            raise ValueError("max_workers 必须至少为 1。")
         self._runtime = runtime
         self._parser = parser or CS2DemoMatchParser()
         self._executor = executor or ThreadPoolExecutor(
-            max_workers=2, thread_name_prefix="roundmind-demo"
+            max_workers=max_workers, thread_name_prefix="roundmind-demo"
         )
         self.object_store = object_store or object_store_from_environment()
         self._jobs: dict[str, _DemoJob] = {}
         self._lock = RLock()
         self._max_pending_jobs = max_pending_jobs
+        self.max_pending_jobs = max_pending_jobs
+        self.max_workers = max_workers
         self._player_selection_timeout_seconds = player_selection_timeout_seconds
+
+    def ensure_capacity(self) -> None:
+        """在接收大文件前执行快速准入检查；入队时仍会再次做硬限制。"""
+        with self._lock:
+            if self._pending_count_unlocked() >= self._max_pending_jobs:
+                raise DemoQueueFullError("Demo 解析队列已满，请稍后重试。")
+
+    def pending_count(self) -> int:
+        with self._lock:
+            return self._pending_count_unlocked()
 
     def submit(
         self,
@@ -273,10 +290,7 @@ class DemoJobManager:
 
     def _enqueue(self, job: _DemoJob) -> None:
         with self._lock:
-            pending = sum(
-                item.status in {"queued", "discovering", "awaiting_player", "parsing"}
-                for item in self._jobs.values()
-            )
+            pending = self._pending_count_unlocked()
             if pending >= self._max_pending_jobs:
                 raise DemoQueueFullError("Demo 解析队列已满，请稍后重试。")
             while len(self._jobs) >= 100:
@@ -294,6 +308,12 @@ class DemoJobManager:
             self._jobs[job.job_id] = job
         target = self._run if job.player_name else self._discover_players
         self._executor.submit(target, job.job_id)
+
+    def _pending_count_unlocked(self) -> int:
+        return sum(
+            item.status in {"queued", "discovering", "awaiting_player", "parsing"}
+            for item in self._jobs.values()
+        )
 
     @contextmanager
     def _materialized(self, job: _DemoJob):

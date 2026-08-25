@@ -36,6 +36,8 @@ DATABASE_URL=<Neon Direct connection string>
 ROUNDMIND_CORS_ORIGINS=https://roundmind-cs2-coach.kclespark.chatgpt.site
 ROUNDMIND_KNOWLEDGE_BACKEND=pgvector
 ROUNDMIND_JOB_BACKEND=local
+ROUNDMIND_MAX_PENDING_JOBS=2
+ROUNDMIND_DEMO_WORKERS=1
 ROUNDMIND_OBJECT_STORAGE=local
 ROUNDMIND_AUTH_REQUIRED=false
 ROUNDMIND_ENABLE_LLM_COACH=false
@@ -48,20 +50,20 @@ ROUNDMIND_ENABLE_LLM_COACH=false
 访问：
 
 ```text
-https://roundmind-cs2-agent.onrender.com/health
+https://roundmind-cs2-agent.onrender.com/ready
 ```
 
 成功响应至少应包含：
 
 ```json
 {
-  "status": "ok",
-  "storage": "postgresql",
-  "demo_storage": "local",
-  "job_backend": "memory",
-  "auth": "disabled"
+  "status": "ready",
+  "storage": "postgresql"
 }
 ```
+
+再访问 `/health`，确认 `demo_storage=local`、`job_backend=memory`、`auth=disabled`，以及
+`pending_jobs` 没有超过 `max_pending_jobs`。
 
 然后在网页上传一份小 Demo 并完成一次解析。再次刷新网页或等待后端重启后，数据库中的比赛记录仍应存在。
 第一次触发知识检索时会把版本化知识同步进 pgvector；向量由本地确定性算法生成，不调用外部 Embedding API。

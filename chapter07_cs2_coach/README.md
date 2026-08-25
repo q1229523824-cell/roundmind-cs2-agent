@@ -47,7 +47,8 @@ RoundMind 使用 FastAPI 接收 CS2 Source 2 `.dem`，用 `demoparser2` 提取�
 
 ## Render 部署
 
-根目录 `render.yaml` 使用 Docker 构建 `roundmind-cs2-api`，健康检查地址为 `/health`。
+根目录 `render.yaml` 使用 Docker 构建 `roundmind-cs2-api`，依赖就绪检查地址为 `/ready`；`/health`
+仍用于查看版本、存储后端和队列容量。
 连接 GitHub 仓库后可直接创建 Blueprint。免费实例磁盘是临时的，本项目不会依赖其持久化。
 
 后端成功部署后，把 Sites 运行时变量 `ROUNDMIND_API_URL` 设置为后端 HTTPS 地址并重新发布

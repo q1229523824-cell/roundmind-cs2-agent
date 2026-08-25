@@ -41,4 +41,6 @@ Demo 解析是 CPU 和内存密集任务，起步时每个 Worker 建议并发�
 ## 本地回退
 
 不设置或设置 `ROUNDMIND_JOB_BACKEND=local` 时，仍使用原来的线程池，不需要 Redis 和 Celery，适合学习、
-单机测试和本地大 Demo 解析。也就是说，引入生产架构不会让开发环境变复杂。
+单机测试和本地大 Demo 解析。低成本实例默认 `ROUNDMIND_DEMO_WORKERS=1`、
+`ROUNDMIND_MAX_PENDING_JOBS=2`；队列满时 API 会在接收大文件前返回 429 和 `Retry-After`，避免先写入
+500 MB 临时文件才拒绝。也就是说，引入生产架构不会让开发环境变复杂。

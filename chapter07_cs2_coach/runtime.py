@@ -36,6 +36,9 @@ class MatchRepository:
         self._owners: dict[str, str | None] = {}
         self._lock = RLock()
 
+    def check_connection(self) -> None:
+        """进程内仓库无需外部依赖，创建成功即为可用。"""
+
     def save(self, match: MatchRecord, owner_id: str | None = None) -> MatchRecord:
         with self._lock:
             existing_owner = self._owners.get(match.match_id)

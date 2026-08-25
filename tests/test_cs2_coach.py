@@ -48,7 +48,7 @@ from chapter07_cs2_coach.profile_cli import (
     collect_demo_paths,
 )
 from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
-from chapter07_cs2_coach.runtime import CS2CoachRuntime
+from chapter07_cs2_coach.runtime import CS2CoachRuntime, MatchRepository
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
 from chapter07_cs2_coach.situation_state import build_situation_state
 from chapter07_cs2_coach.situation_audit import audit_situation_coverage
@@ -303,6 +303,22 @@ class InlineExecutor:
         except Exception as error:  # pragma: no cover - Future 行为兼容
             future.set_exception(error)
         return future
+
+
+class DeferredExecutor:
+    """保留任务但不执行，用于稳定复现队列已满。"""
+
+    def __init__(self):
+        self.calls = []
+
+    def submit(self, function, *args, **kwargs):
+        self.calls.append((function, args, kwargs))
+        return Future()
+
+
+class UnavailableRepository(MatchRepository):
+    def check_connection(self) -> None:
+        raise ConnectionError("database unavailable")
 
 
 class FakeCoachModel:
@@ -1603,6 +1619,18 @@ class CS2CoachApiTests(unittest.TestCase):
         health = self.client.get("/health").json()
         self.assertEqual(health["status"], "ok")
         self.assertEqual(health["version"], "local")
+        self.assertEqual(health["pending_jobs"], 0)
+        self.assertEqual(health["max_pending_jobs"], 2)
+        ready = self.client.get("/ready")
+        self.assertEqual(ready.status_code, 200)
+        self.assertEqual(ready.json()["status"], "ready")
+
+    def test_ready_reports_database_failure_without_leaking_details(self):
+        runtime = CS2CoachRuntime(repository=UnavailableRepository())
+        response = TestClient(create_app(runtime)).get("/ready")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"detail": "数据库暂时不可用。"})
 
     def test_player_profile_endpoint_uses_steamid_and_map_filter(self):
         match = quality_ready_match(match_id="profile-api-test")
@@ -1772,6 +1800,41 @@ class CS2CoachApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 422)
+
+    def test_full_queue_rejects_before_reading_demo_body(self):
+        runtime = CS2CoachRuntime.create()
+        executor = DeferredExecutor()
+        jobs = DemoJobManager(runtime, executor=executor, max_pending_jobs=1)
+        with tempfile.TemporaryDirectory() as workspace:
+            source = Path(workspace) / "queued.dem"
+            source.write_bytes(b"PBDEMS2\x00queued")
+            jobs.submit(
+                path=source,
+                filename="queued.dem",
+                player_name="Learner",
+                question="分析",
+            )
+            client = TestClient(create_app(runtime, jobs))
+
+            response = client.post(
+                "/api/demo-jobs",
+                headers={"Origin": "http://localhost:3000"},
+                files={
+                    "file": (
+                        "next.dem",
+                        io.BytesIO(b"not-even-a-valid-demo"),
+                        "application/octet-stream",
+                    )
+                },
+            )
+
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.headers["retry-after"], "30")
+        self.assertEqual(
+            response.headers["access-control-allow-origin"],
+            "http://localhost:3000",
+        )
+        self.assertEqual(len(executor.calls), 1)
 
     def test_demo_job_parses_and_deletes_temporary_file(self):
         runtime = CS2CoachRuntime.create()
