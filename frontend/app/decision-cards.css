@@ -4,6 +4,44 @@
   padding-top: 28px;
 }
 
+.contactDecisionSection { margin-top: 38px; border-top: 1px solid var(--line); padding-top: 28px; }
+.calibrationBar { display: grid; grid-template-columns: 135px 175px 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); margin-bottom: 16px; }
+.calibrationBar > * { background: #10120f; margin: 0; padding: 14px 16px; }
+.calibrationBar div { display: flex; flex-direction: column; gap: 5px; }
+.calibrationBar b { color: var(--accent); font-size: 20px; }
+.calibrationBar span, .calibrationBar p { color: var(--muted); font-size: 10px; line-height: 1.6; }
+.contactDecisionGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.contactDecisionCard { background: #0f110e; border: 1px solid var(--line); border-top: 3px solid var(--warning); padding: 18px; min-width: 0; }
+.contactDecisionCard.high { border-top-color: var(--danger); }
+.contactDecisionCard.low { border-top-color: var(--positive); }
+.contactDecisionCard header { display: flex; justify-content: space-between; gap: 15px; }
+.contactDecisionCard header span { color: var(--muted); font: 9px var(--font-mono), monospace; letter-spacing: .08em; }
+.contactDecisionCard header strong { display: block; margin-top: 6px; font-size: 14px; }
+.contactDecisionCard .riskScore { text-align: right; white-space: nowrap; }
+.contactDecisionCard .riskScore small { display: block; font-size: 8px; }
+.conditionNote { color: var(--accent); font: 10px var(--font-mono), monospace; margin: 14px 0 8px; }
+.conditionFactors { color: #aeb0a7; font-size: 11px; line-height: 1.55; margin: 0 0 14px; padding-left: 17px; }
+.candidateList { border: 1px solid var(--line); }
+.candidate { display: grid; grid-template-columns: 1fr auto; gap: 5px 12px; padding: 11px; border-bottom: 1px solid var(--line); }
+.candidate:last-child { border-bottom: 0; }
+.candidate.recommended { background: rgba(217, 255, 67, .06); box-shadow: inset 2px 0 var(--accent); }
+.candidate > div { display: flex; gap: 7px; align-items: center; }
+.candidate b { font-size: 11px; }
+.candidate i { color: var(--accent); border: 1px solid #506025; padding: 2px 4px; font: 7px var(--font-mono), monospace; font-style: normal; }
+.candidate > strong { font: 700 14px var(--font-mono), monospace; }
+.candidate p, .candidate small { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.candidate small { color: #c7a758; }
+.annotationBox { margin-top: 14px; padding-top: 13px; border-top: 1px dashed #454a40; }
+.annotationBox > b { color: #dfe1d7; font-size: 11px; }
+.annotationBox > div { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0; }
+.annotationBox button { border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 7px 8px; cursor: pointer; font-size: 9px; }
+.annotationBox button:hover, .annotationBox button.selected { color: #10120d; background: var(--accent); border-color: var(--accent); }
+.annotationBox button:disabled { cursor: wait; opacity: .55; }
+.annotationBox input { width: 100%; border: 1px solid var(--line); background: #0b0d0a; color: var(--ink); padding: 9px; font: 10px var(--font-sans), sans-serif; outline: 0; }
+.annotationBox input:focus { border-color: var(--accent); }
+.annotationBox > small { display: block; color: var(--positive); margin-top: 7px; font-size: 9px; }
+.annotationError { color: #ffc5bb; font-size: 10px; }
+
 .sectionTitle {
   display: flex;
   justify-content: space-between;
@@ -41,9 +79,11 @@
 .knowledgePanel li p { margin: 5px 0; color: #aaada4; font-size: 11px; }
 .knowledgePanel li small { color: var(--accent); }
 
-@media (max-width: 900px) { .decisionGrid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .decisionGrid, .contactDecisionGrid { grid-template-columns: 1fr; } }
 @media (max-width: 620px) {
   .sectionTitle { align-items: flex-start; flex-direction: column; }
   .sectionTitle > span { text-align: left; }
   .decisionCard footer { flex-direction: column; }
+  .calibrationBar { grid-template-columns: 1fr 1fr; }
+  .calibrationBar p { grid-column: 1 / -1; }
 }

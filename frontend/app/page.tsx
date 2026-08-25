@@ -64,6 +64,43 @@ type DecisionCard = {
   confidence: "high" | "medium" | "low";
 };
 
+type DecisionAction =
+  | "continue_contact"
+  | "disengage_reset"
+  | "wait_for_support"
+  | "create_utility_condition";
+
+type ContactCandidateAction = {
+  action: DecisionAction;
+  label: string;
+  risk_score: number;
+  rationale: string;
+  assumptions: string[];
+  recommended: boolean;
+};
+
+type ContactDecisionCard = {
+  round_number: number;
+  tick: number;
+  location: string;
+  side: "T" | "CT";
+  observed_outcome: "kill" | "death" | "disengaged";
+  weapon: string;
+  first_damage_by_player: boolean;
+  condition_risk_score: number;
+  risk_level: "high" | "medium" | "low";
+  factors: string[];
+  candidate_actions: ContactCandidateAction[];
+  preferred_action: DecisionAction;
+  confidence: "high" | "medium" | "low";
+};
+
+type CalibrationSummary = {
+  total: number;
+  agreements: number;
+  agreement_rate: number | null;
+};
+
 type AgentAnalysis = {
   answer: string;
   summary: Record<string, string | number>;
@@ -72,6 +109,7 @@ type AgentAnalysis = {
   execution_trace: string[];
   knowledge_references: KnowledgeReference[];
   decision_cards: DecisionCard[];
+  contact_decision_cards: ContactDecisionCard[];
   confidence: "high" | "medium" | "low";
 };
 
@@ -182,6 +220,23 @@ const labels: Record<string, string> = {
   economy: "经济决策",
   clutch: "残局转化",
 };
+
+const actionLabels: Record<DecisionAction, string> = {
+  continue_contact: "继续接触",
+  disengage_reset: "脱离重置",
+  wait_for_support: "等待支援",
+  create_utility_condition: "创造道具条件",
+};
+
+const outcomeLabels = {
+  kill: "最终击杀",
+  death: "最终死亡",
+  disengaged: "主动脱离",
+};
+
+function contactCardKey(matchId: string, card: ContactDecisionCard): string {
+  return `${matchId}:${card.round_number}:${card.tick}:${card.side}:${card.location}`;
+}
 
 function chooseTools(question: string): string[] {
   const rules: [string, string[]][] = [
@@ -312,6 +367,11 @@ export default function Home() {
   const [coachError, setCoachError] = useState("");
   const [coachStage, setCoachStage] = useState("");
   const [copiedMessageId, setCopiedMessageId] = useState("");
+  const [annotationSelections, setAnnotationSelections] = useState<Record<string, DecisionAction>>({});
+  const [annotationReasons, setAnnotationReasons] = useState<Record<string, string>>({});
+  const [annotationPending, setAnnotationPending] = useState("");
+  const [annotationError, setAnnotationError] = useState("");
+  const [calibration, setCalibration] = useState<CalibrationSummary>({ total: 0, agreements: 0, agreement_rate: null });
   const coachAbortRef = useRef<AbortController | null>(null);
   const coachThreadEndRef = useRef<HTMLDivElement | null>(null);
   const tools = useMemo(() => chooseTools(query), [query]);
@@ -333,6 +393,7 @@ export default function Home() {
   ];
   const trace = remoteAnalysis?.execution_trace ?? localTrace;
   const decisionCards = remoteAnalysis?.decision_cards ?? [];
+  const contactDecisionCards = remoteAnalysis?.contact_decision_cards ?? [];
   const knowledgeReferences = remoteAnalysis?.knowledge_references ?? [];
 
   useEffect(() => {
@@ -371,6 +432,65 @@ export default function Home() {
   useEffect(() => {
     coachThreadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [coachMessages, coachPending, coachError]);
+
+  useEffect(() => {
+    if (!match.player_steamid || !contactDecisionCards.length) return;
+    const controller = new AbortController();
+    const cardKeys = contactDecisionCards.map((card) => contactCardKey(match.match_id, card));
+    fetch("/api/decision-annotations", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        playerSteamid: match.player_steamid,
+        mapName: match.map_name,
+        cardKeys,
+      }),
+      signal: controller.signal,
+    }).then(async (response) => {
+      const body = await response.json() as {
+        selections?: Record<string, DecisionAction>;
+        summary?: CalibrationSummary;
+        error?: string;
+      };
+      if (!response.ok) throw new Error(body.error ?? "无法读取校准数据");
+      setAnnotationSelections(body.selections ?? {});
+      if (body.summary) setCalibration(body.summary);
+    }).catch((reason) => {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
+      setAnnotationError(reason instanceof Error ? reason.message : "无法读取校准数据");
+    });
+    return () => controller.abort();
+  }, [contactDecisionCards, match.match_id, match.map_name, match.player_steamid]);
+
+  async function annotateDecision(card: ContactDecisionCard, humanAction: DecisionAction) {
+    if (!match.player_steamid) return;
+    const cardKey = contactCardKey(match.match_id, card);
+    setAnnotationPending(cardKey);
+    setAnnotationError("");
+    try {
+      const response = await fetch("/api/decision-annotations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          playerSteamid: match.player_steamid,
+          mapName: match.map_name,
+          cardKey,
+          observedOutcome: card.observed_outcome,
+          agentAction: card.preferred_action,
+          humanAction,
+          reason: annotationReasons[cardKey] ?? "",
+        }),
+      });
+      const body = await response.json() as { summary?: CalibrationSummary; error?: string };
+      if (!response.ok) throw new Error(body.error ?? "标注保存失败");
+      setAnnotationSelections((current) => ({ ...current, [cardKey]: humanAction }));
+      if (body.summary) setCalibration(body.summary);
+    } catch (reason) {
+      setAnnotationError(reason instanceof Error ? reason.message : "标注保存失败");
+    } finally {
+      setAnnotationPending("");
+    }
+  }
 
   async function upload(file?: File) {
     if (!file) return;
@@ -649,10 +769,33 @@ export default function Home() {
         <header><div><p className="eyebrow">02 / COACH REPORT</p><h2>{match.player_name} · {match.map_name}</h2></div><span className="confidence">置信度 {confidence}</span></header>
         <div className="metrics"><div><span>SCORE</span><strong>{stats.score}</strong></div><div><span>K / D / A</span><strong>{stats.kills} / {stats.deaths} / {stats.assists}</strong></div><div><span>ADR</span><strong>{stats.adr}</strong></div><div><span>KAST</span><strong>{stats.kast}%</strong></div><div><span>ROUNDS</span><strong>{stats.rounds}</strong></div></div>
         <div className="reportGrid"><section><h3>教练结论</h3><p className="lead">{remoteAnalysis?.answer || `${match.player_name} 在 ${match.map_name} 打出 ${stats.kills}/${stats.deaths}/${stats.assists}，ADR ${stats.adr}，KAST ${stats.kast}%。`}</p>{evidence.map((item, index) => <div className="finding" key={item.finding}><b>{index + 1}. {item.finding}</b><p>证据：{item.metric}；相关回合：{item.rounds.map((round) => `R${round}`).join("、") || "全场统计"}。</p><p>训练建议：{item.suggestion}</p></div>)}<p className="focus">下一场先只跟踪最高优先级问题，避免一次同时修改太多习惯。</p></section><aside><h3>证据卡片</h3>{evidence.map((item) => <div className={`evidence ${item.severity}`} key={item.metric}><span>{item.severity.toUpperCase()}</span><p>{item.metric}</p><i>{item.rounds.map((round) => `R${round}`).join(" · ") || "全场统计"}</i></div>)}</aside></div>
-        {decisionCards.length > 0 && <section className="decisionSection"><div className="sectionTitle"><div><p className="eyebrow">03 / DECISION REVIEW</p><h3>逐回合接战决策卡</h3></div><span>风险描述决策条件，不用死亡结果倒推对错</span></div><div className="decisionGrid">{decisionCards.slice(0, 6).map((card) => <article className={`decisionCard ${card.risk_level}`} key={`${card.round_number}-${card.tick}`}><header><div><span>R{card.round_number} · {card.side}</span><strong>{card.location}</strong></div><div className="riskScore"><b>{card.risk_score}</b><small>/100</small></div></header><div className="riskTrack" aria-label={`风险分 ${card.risk_score}`}><i style={{ width: `${card.risk_score}%` }}/></div><p className="situation">{card.situation}</p><ul>{card.factors.slice(0, 3).map((factor) => <li key={factor}>{factor}</li>)}</ul><p className="better"><b>更优动作</b>{card.better_action}</p><footer><span>置信度 {card.confidence.toUpperCase()}</span><span>{card.knowledge_ids.join(" · ") || "仅比赛事实"}</span></footer></article>)}</div>{knowledgeReferences.length > 0 && <details className="knowledgePanel"><summary>查看本次引用的 {knowledgeReferences.length} 条 Dust2 战术知识</summary><ol>{knowledgeReferences.map((item) => <li key={item.knowledge_id}><b>[{item.knowledge_id}] {item.title}</b><p>{item.principle}</p><small>{item.source} · 匹配分 {item.score}</small></li>)}</ol></details>}</section>}
+        {contactDecisionCards.length > 0 && <section className="contactDecisionSection">
+          <div className="sectionTitle">
+            <div><p className="eyebrow">03 / ACTION COMPARISON</p><h3>当时还有哪些选择？</h3></div>
+            <span>同一套事前条件同时评价击杀、死亡和脱离，不用赛后结果倒推对错</span>
+          </div>
+          <div className="calibrationBar">
+            <div><b>{calibration.total}</b><span>人工校准样本</span></div>
+            <div><b>{calibration.agreement_rate === null ? "待标注" : `${(calibration.agreement_rate * 100).toFixed(0)}%`}</b><span>与 Agent 推荐一致</span></div>
+            <p>一致率低不代表玩家错了，而是提醒我们检查评分规则。建议先积累 20–30 张卡再调整阈值。</p>
+          </div>
+          {annotationError && <p className="annotationError">{annotationError}</p>}
+          <div className="contactDecisionGrid">{contactDecisionCards.slice(0, 6).map((card) => {
+            const cardKey = contactCardKey(match.match_id, card);
+            const selected = annotationSelections[cardKey];
+            return <article className={`contactDecisionCard ${card.risk_level}`} key={cardKey}>
+              <header><div><span>R{card.round_number} · {card.side} · {outcomeLabels[card.observed_outcome]}</span><strong>{card.location} · {card.weapon}</strong></div><div className="riskScore"><b>{card.condition_risk_score}</b><small>/100 事前风险</small></div></header>
+              <p className="conditionNote">{card.first_damage_by_player ? "你先造成伤害" : "对手先造成伤害"} · 置信度 {card.confidence.toUpperCase()}</p>
+              <ul className="conditionFactors">{card.factors.slice(0, 3).map((factor) => <li key={factor}>{factor}</li>)}</ul>
+              <div className="candidateList">{card.candidate_actions.map((candidate) => <div className={candidate.recommended ? "candidate recommended" : "candidate"} key={candidate.action}><div><b>{candidate.label}</b>{candidate.recommended && <i>AGENT 推荐</i>}</div><strong>{candidate.risk_score}</strong><p>{candidate.rationale}</p>{candidate.assumptions.map((assumption) => <small key={assumption}>前提：{assumption}</small>)}</div>)}</div>
+              <div className="annotationBox"><b>你认为当时更合理的动作是？</b><div>{card.candidate_actions.map((candidate) => <button aria-pressed={selected === candidate.action} className={selected === candidate.action ? "selected" : ""} disabled={annotationPending === cardKey} key={candidate.action} onClick={() => annotateDecision(card, candidate.action)}>{actionLabels[candidate.action]}</button>)}</div><input maxLength={300} value={annotationReasons[cardKey] ?? ""} placeholder="可选：写一句判断原因，再点击动作保存" onChange={(event) => setAnnotationReasons((current) => ({ ...current, [cardKey]: event.target.value }))}/>{selected && <small>已保存：{actionLabels[selected]}{selected === card.preferred_action ? " · 与 Agent 一致" : " · 将用于检查规则"}</small>}</div>
+            </article>;
+          })}</div>
+        </section>}
+        {decisionCards.length > 0 && <section className="decisionSection"><div className="sectionTitle"><div><p className="eyebrow">04 / DEATH REVIEW</p><h3>死亡前接战复盘卡</h3></div><span>保留更完整的炸弹、人数和烟雾局势解释</span></div><div className="decisionGrid">{decisionCards.slice(0, 6).map((card) => <article className={`decisionCard ${card.risk_level}`} key={`${card.round_number}-${card.tick}`}><header><div><span>R{card.round_number} · {card.side}</span><strong>{card.location}</strong></div><div className="riskScore"><b>{card.risk_score}</b><small>/100</small></div></header><div className="riskTrack" aria-label={`风险分 ${card.risk_score}`}><i style={{ width: `${card.risk_score}%` }}/></div><p className="situation">{card.situation}</p><ul>{card.factors.slice(0, 3).map((factor) => <li key={factor}>{factor}</li>)}</ul><p className="better"><b>更优动作</b>{card.better_action}</p><footer><span>置信度 {card.confidence.toUpperCase()}</span><span>{card.knowledge_ids.join(" · ") || "仅比赛事实"}</span></footer></article>)}</div>{knowledgeReferences.length > 0 && <details className="knowledgePanel"><summary>查看本次引用的 {knowledgeReferences.length} 条 Dust2 战术知识</summary><ol>{knowledgeReferences.map((item) => <li key={item.knowledge_id}><b>[{item.knowledge_id}] {item.title}</b><p>{item.principle}</p><small>{item.source} · 匹配分 {item.score}</small></li>)}</ol></details>}</section>}
         <section className="coachSection">
           <div className="sectionTitle coachTitle">
-            <div><p className="eyebrow">04 / CONTINUOUS COACH</p><h3>围绕这名玩家继续追问</h3></div>
+            <div><p className="eyebrow">05 / CONTINUOUS COACH</p><h3>围绕这名玩家继续追问</h3></div>
             <div className="coachStatus"><span>{coachMode === "llm" ? "DEEPSEEK" : coachMode === "offline" ? "OFFLINE" : "READY"}</span><small>已记忆 {rememberedTurns} 轮</small></div>
           </div>
           {!remoteAnalysis || !match.player_steamid ? <div className="coachEmpty"><b>先完成一次 Demo 解析</b><p>选择玩家后，教练会带着比赛证据、角色画像和历史问答与你连续交流。</p></div> : <>

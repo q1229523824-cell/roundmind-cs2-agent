@@ -45,12 +45,15 @@ test("server-renders the RoundMind demo upload experience", async () => {
 });
 
 test("keeps demo uploads bounded and connected to the backend", async () => {
-  const [page, configRoute, coachRoute, coachStore, schema, hosting] = await Promise.all([
+  const [page, configRoute, coachRoute, coachStore, annotationRoute, annotationStore, schema, migration, hosting] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/config/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/coach/chat/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/coach-sessions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/decision-annotations/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/decision-annotations.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../drizzle/0001_pretty_skullbuster.sql", import.meta.url), "utf8"),
     readFile(new URL("../.openai/hosting.json", import.meta.url), "utf8"),
   ]);
 
@@ -63,7 +66,11 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /player_steamid/);
   assert.match(page, /request\.upload\.onprogress/);
   assert.match(page, /decision_cards/);
-  assert.match(page, /逐回合接战决策卡/);
+  assert.match(page, /contact_decision_cards/);
+  assert.match(page, /当时还有哪些选择/);
+  assert.match(page, /人工校准样本/);
+  assert.match(page, /decision-annotations/);
+  assert.match(page, /死亡前接战复盘卡/);
   assert.match(page, /knowledge_references/);
   assert.match(page, /accept="\.dem,\.json,application\/json"/);
   assert.match(configRoute, /process\.env\.ROUNDMIND_API_URL/);
@@ -82,5 +89,13 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(coachStore, /MAX_HISTORY_CHARS = 18_000/);
   assert.match(coachStore, /DELETE FROM coach_messages/);
   assert.match(schema, /coach_messages/);
+  assert.match(schema, /decision_annotations/);
+  assert.match(annotationRoute, /export async function PUT/);
+  assert.match(annotationRoute, /export async function POST/);
+  assert.match(annotationRoute, /scenario_/);
+  assert.match(annotationStore, /ON CONFLICT\(player_ref, scenario_ref\) DO UPDATE/);
+  assert.match(annotationStore, /agent_action = human_action/);
+  assert.match(migration, /CREATE TABLE `decision_annotations`/);
+  assert.doesNotMatch(annotationStore, /steamid/i);
   assert.equal(JSON.parse(hosting).d1, "DB");
 });
