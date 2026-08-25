@@ -9,3 +9,19 @@ services:
     envVars:
       - key: ROUNDMIND_CORS_ORIGINS
         value: https://roundmind-cs2-coach.kclespark.chatgpt.site
+      # 生产环境使用 Neon 的 direct（非 pooler）连接串，供容器启动时运行 Alembic。
+      # 真实连接串只在 Render 控制台填写，不能提交到 Git。
+      - key: DATABASE_URL
+        sync: false
+      # 第一阶段保持单进程解析，避免 Redis/Celery Worker 的额外费用。
+      - key: ROUNDMIND_JOB_BACKEND
+        value: local
+      - key: ROUNDMIND_OBJECT_STORAGE
+        value: local
+      - key: ROUNDMIND_AUTH_REQUIRED
+        value: "false"
+      # 已有 Blueprint 不会为后来新增的 sync:false 变量再次提示；数据库录入成功后再手动切到 pgvector。
+      - key: ROUNDMIND_KNOWLEDGE_BACKEND
+        value: local
+      - key: ROUNDMIND_ENABLE_LLM_COACH
+        value: "false"

@@ -102,6 +102,9 @@ npm run build
 仓库根目录已经提供 `render.yaml`。在 Render 中使用 Blueprint 连接该仓库即可创建
 `roundmind-cs2-api`，健康检查路径为 `/health`。
 
+最低成本生产部署（Sites + Render Free + Neon Free，暂不启用 Redis/Celery 与 R2）的逐项配置和验收方式见
+`docs/low-cost-production-deployment.md`。
+
 ### Sites 前端
 
 `frontend/.openai/hosting.json` 关联现有 Sites 项目。后端上线后设置：
