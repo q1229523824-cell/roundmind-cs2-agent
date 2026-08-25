@@ -51,6 +51,7 @@ render.yaml           Render Blueprint
 - Demo 存储可在本地目录与 S3/Cloudflare R2 间切换，任务只传递随机对象键，解析后自动删除；
 - 可选 Redis + Celery 分布式任务：API 只投递 job_id，独立 Worker 解析大 Demo 并共享任务进度；
 - 可选邮箱登录与 JWT 鉴权：Argon2 保存密码，比赛、任务、画像和对话按用户 UUID 隔离；
+- 可选 pgvector 混合 RAG：地图过滤 + 向量召回 + 阵营/点位/主题重排，默认仍可完全离线；
 - 基于完整交火生成武器分布、步枪/主狙/混合角色画像，并按武器、阵营、点位和距离拆解被先手伤害后的转化差距；
 - 可选 DeepSeek Planner，但只有显式启用时才会发送必要统计和问题。
 
@@ -66,6 +67,7 @@ FastAPI。数据库配置、迁移和回退方式见 `docs/postgresql-persistenc
 对象存储配置与安全边界见 `docs/object-storage.md`；未配置时保持本地临时存储。
 Redis/Celery 的进程职责、配置和 Worker 命令见 `docs/distributed-jobs.md`。
 登录开关、API 与所有权边界见 `docs/auth-and-ownership.md`。
+向量生成边界、索引命令和评测方式见 `docs/pgvector-rag.md`。
 
 访问：
 

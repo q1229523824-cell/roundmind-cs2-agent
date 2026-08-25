@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -109,6 +110,18 @@ def retrieve_tactical_knowledge(
     if match.map_name != "de_dust2" or limit <= 0:
         return []
     text, locations, sides, topics = _query_context(match, question, evidence)
+    if os.getenv("ROUNDMIND_KNOWLEDGE_BACKEND", "local").lower() == "pgvector":
+        from chapter07_cs2_coach.vector_knowledge import retrieve_pgvector_knowledge
+
+        return retrieve_pgvector_knowledge(
+            match=match,
+            question=question,
+            evidence=evidence,
+            locations=locations,
+            sides=sides,
+            topics=topics,
+            limit=limit,
+        )
     scored: list[tuple[int, TacticalKnowledge, set[str]]] = []
     for entry in load_knowledge():
         if entry.map != match.map_name:
