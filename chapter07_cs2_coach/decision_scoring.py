@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from chapter07_cs2_coach.knowledge_base import retrieve_for_engagement
 from chapter07_cs2_coach.models import DecisionCard, EngagementRecord, MatchRecord
+from chapter07_cs2_coach.situation_state import build_situation_state
 from chapter07_cs2_coach.tools import DUST2_CALLOUTS
 
 
@@ -29,6 +30,7 @@ def score_engagement(match: MatchRecord, item: EngagementRecord) -> DecisionCard
     score = BASE_RISK[item.classification]
     factors: list[str] = []
     confidence = "high"
+    state = build_situation_state(item)
 
     distance = item.nearest_teammate_distance
     if item.alive_teammates == 0:
@@ -113,11 +115,26 @@ def score_engagement(match: MatchRecord, item: EngagementRecord) -> DecisionCard
             f"炸弹已在 {item.bombsite or '未知'} 点安放{timing}，"
             "需要按回防/守包语境复核"
         )
+        if item.side == "T" and item.alive_teammates > 0 and state.tempo == "expanding":
+            score += 8
+            factors.append("T 方下包后仍主动扩大接触，需要证明该前压收益高于守包交叉火力")
+        elif item.side == "CT" and item.classification == "isolated_advance":
+            score -= 12
+            factors.append("CT 回防必须主动争夺空间，孤立推进风险按时间压力下调")
     elif item.bomb_state in {"defused", "exploded"}:
+        confidence = "low"
         factors.append("该快照位于炸弹结算阶段附近，常规接战评分仅供复核")
 
     if item.round_elapsed_seconds is not None:
         factors.append(f"快照距冻结时间结束约 {item.round_elapsed_seconds:g} 秒")
+        if (
+            state.phase == "late_round"
+            and item.side == "T"
+            and item.bomb_state == "not_planted"
+            and state.tempo == "expanding"
+        ):
+            score += 6
+            factors.append("T 方进入回合后段仍未下包，主动接触同时受到时间压力")
 
     if item.killer_distance is not None:
         factors.append(
@@ -149,7 +166,7 @@ def score_engagement(match: MatchRecord, item: EngagementRecord) -> DecisionCard
     references = retrieve_for_engagement(match, item)
     situation = (
         f"{item.side} 方 · {_location_label(match, item.location)} · "
-        f"{player_side_alive}v{item.alive_enemies} · {item.weapon}"
+        f"{player_side_alive}v{item.alive_enemies} · {item.weapon} · {state.phase}"
     )
     return DecisionCard(
         round_number=item.round_number,
@@ -165,6 +182,7 @@ def score_engagement(match: MatchRecord, item: EngagementRecord) -> DecisionCard
         better_action=actions[item.classification],
         knowledge_ids=[ref.knowledge_id for ref in references],
         confidence=confidence,
+        situation_state=state,
     )
 
 

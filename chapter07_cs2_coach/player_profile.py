@@ -17,6 +17,7 @@ from chapter07_cs2_coach.models import (
     ProfileRateSummary,
 )
 from chapter07_cs2_coach.quality_audit import MatchQualityAudit, audit_match
+from chapter07_cs2_coach.training_goals import build_training_goals
 from chapter07_cs2_coach.weapon_role_profile import (
     build_first_damage_disadvantage_segments,
     build_weapon_profile,
@@ -312,6 +313,7 @@ def build_player_profile(
         weapon_profile=weapon_profile,
         role_profile=role_profile,
         first_damage_disadvantage_segments=disadvantage_segments,
+        training_goals=build_training_goals(selected),
     )
 
 

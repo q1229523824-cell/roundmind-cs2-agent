@@ -61,5 +61,30 @@
     "engagement": {"round_number": 1, "tick": 1000, "classification": "supported_contact", "location": "BombsiteB", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 300, "nearby_support": true, "moved_distance_5s": 100, "effective_team_flashes_5s": 1, "was_traded": true, "smoke_between_player_and_nearest_teammate": false, "nearest_teammate_view_angle_error": 15, "nearest_teammate_facing_killer": true, "support_ready_teammates_proxy": 1},
     "expected_level": "low", "min_score": 0, "max_score": 10,
     "expected_confidence": "high"
+  },
+  {
+    "id": "t-postplant-overextension",
+    "description": "T方下包后仍远离队友扩大接触，应计入守包结构损失",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "isolated_advance", "location": "LongA", "side": "T", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "AK-47", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 1200, "nearby_support": false, "moved_distance_5s": 700, "effective_team_flashes_5s": 0, "was_traded": false, "bomb_state": "planted", "bombsite": "A", "seconds_since_bomb_plant": 12},
+    "expected_level": "high", "min_score": 88, "max_score": 94
+  },
+  {
+    "id": "ct-retake-urgency",
+    "description": "CT下包后回防必须主动争夺空间，不能与无目标前压同罚",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "isolated_advance", "location": "CTSpawn", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 900, "nearby_support": false, "moved_distance_5s": 700, "effective_team_flashes_5s": 0, "was_traded": false, "bomb_state": "planted", "bombsite": "A", "seconds_since_bomb_plant": 18},
+    "expected_level": "medium", "min_score": 62, "max_score": 66
+  },
+  {
+    "id": "t-late-round-unplanted",
+    "description": "T方回合后段未下包仍扩大接触，同时受到时间压力",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "isolated_contact", "location": "Middle", "side": "T", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "AK-47", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 900, "nearby_support": false, "moved_distance_5s": 700, "effective_team_flashes_5s": 0, "was_traded": false, "round_elapsed_seconds": 95, "bomb_state": "not_planted"},
+    "expected_level": "medium", "min_score": 64, "max_score": 68
+  },
+  {
+    "id": "settled-round-low-confidence",
+    "description": "炸弹已经结算的快照不应被当作正常决策证据",
+    "engagement": {"round_number": 1, "tick": 1000, "classification": "supported_contact", "location": "BombsiteA", "side": "CT", "position_x": 0, "position_y": 0, "position_z": 0, "health": 100, "armor": 100, "weapon": "M4A1", "alive_teammates": 2, "alive_enemies": 3, "nearest_teammate_distance": 300, "nearby_support": true, "moved_distance_5s": 100, "effective_team_flashes_5s": 0, "was_traded": false, "bomb_state": "defused"},
+    "expected_level": "low", "min_score": 25, "max_score": 29,
+    "expected_confidence": "low"
   }
 ]

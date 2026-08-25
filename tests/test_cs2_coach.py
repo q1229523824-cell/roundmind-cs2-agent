@@ -42,7 +42,9 @@ from chapter07_cs2_coach.profile_cli import (
 from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.sample_data import SAMPLE_MATCH
+from chapter07_cs2_coach.situation_state import build_situation_state
 from chapter07_cs2_coach.tools import analyze_engagement_decisions, get_match_summary
+from chapter07_cs2_coach.training_goals import build_training_goals
 from chapter07_cs2_coach.weapon_role_profile import (
     build_first_damage_disadvantage_segments,
     build_weapon_profile,
@@ -753,9 +755,90 @@ class CS2CoachToolTests(unittest.TestCase):
         cases = load_evaluation_cases()
         result = run_decision_evaluation()
 
-        self.assertGreaterEqual(len(cases), 8)
+        self.assertGreaterEqual(len(cases), 14)
         self.assertEqual(result.passed, result.total, result.failures)
         self.assertEqual(result.accuracy, 1.0)
+        self.assertEqual(result.score_range_accuracy, 1.0)
+        self.assertTrue(all(value == 1.0 for value in result.level_accuracy.values()))
+        self.assertEqual(result.confidence_accuracy, 1.0)
+
+    def test_situation_state_reconstructs_objective_support_and_tempo(self):
+        case = next(
+            item for item in load_evaluation_cases()
+            if item.id == "t-postplant-overextension"
+        )
+
+        state = build_situation_state(case.engagement)
+        card = score_engagement(self._match_for_evaluation(case.engagement), case.engagement)
+
+        self.assertEqual(state.phase, "post_plant")
+        self.assertEqual(state.objective, "bomb_planted")
+        self.assertEqual(state.support, "distant")
+        self.assertEqual(state.tempo, "expanding")
+        self.assertEqual(card.situation_state, state)
+        self.assertTrue(any("守包" in factor for factor in card.factors))
+
+    @staticmethod
+    def _match_for_evaluation(engagement: EngagementRecord) -> MatchRecord:
+        return MatchRecord.model_validate({
+            "match_id": "situation-test",
+            "player_name": "Learner",
+            "player_steamid": "42",
+            "map_name": "de_dust2",
+            "team_name": "A",
+            "opponent_name": "B",
+            "team_score": 0,
+            "opponent_score": 1,
+            "rounds": [{"number": 1, "side": engagement.side, "won": False}],
+            "engagements": [engagement.model_dump()],
+        })
+
+    def test_training_goals_track_improvement_across_matches(self):
+        def contacts(deaths: int, offset: int) -> list[ContactEpisode]:
+            return [ContactEpisode(
+                round_number=3,
+                start_tick=offset + index * 10,
+                end_tick=offset + index * 10 + 5,
+                location="LongA",
+                side="T",
+                first_damage_by_player=False,
+                damage_dealt=80 if index >= deaths else 20,
+                damage_taken=100,
+                outcome="death" if index < deaths else "kill",
+                duration_seconds=1,
+                weapon="AK-47",
+                health_before_contact=100,
+                armor_before_contact=100,
+                alive_teammates=3,
+            ) for index in range(10)]
+
+        matches = [
+            SAMPLE_MATCH.model_copy(update={
+                "match_id": "goal-01",
+                "player_steamid": "42",
+                "map_name": "de_dust2",
+                "contact_episodes": contacts(8, 1000),
+            }),
+            SAMPLE_MATCH.model_copy(update={
+                "match_id": "goal-02",
+                "player_steamid": "42",
+                "map_name": "de_dust2",
+                "contact_episodes": contacts(5, 2000),
+            }),
+        ]
+
+        goals = build_training_goals(matches)
+        profile = build_player_profile(
+            matches,
+            player_steamid="42",
+            map_name="de_dust2",
+            enforce_quality=False,
+        )
+
+        self.assertEqual(goals[0].baseline_value, 0.8)
+        self.assertEqual(goals[0].latest_value, 0.5)
+        self.assertEqual(goals[0].status, "achieved")
+        self.assertEqual(profile.training_goals, goals)
 
     def test_dust2_knowledge_base_has_unique_valid_entries(self):
         entries = load_knowledge()

@@ -15,6 +15,7 @@ from chapter07_cs2_coach.models import (
     MatchRecord,
     ProfileFinding,
     RoleProfile,
+    TrainingGoal,
     WeaponCategoryProfile,
 )
 from chapter07_cs2_coach.personal_baseline import build_personal_contact_contrasts
@@ -86,6 +87,7 @@ class LLMCoachContextPackage(BaseModel):
     evidence_cases: list[ContextEvidenceCase] = Field(max_length=4)
     knowledge_references: list[KnowledgeReference] = Field(max_length=3)
     training_priorities: list[ContextTrainingPriority] = Field(max_length=3)
+    training_goals: list[TrainingGoal] = Field(default_factory=list, max_length=3)
     response_guardrails: list[str] = Field(min_length=1, max_length=8)
 
 
@@ -282,6 +284,7 @@ def build_coach_context(
         training_priorities=_training_priorities(
             profile.first_damage_disadvantage_segments, cases
         ),
+        training_goals=profile.training_goals,
         response_guardrails=[
             "只引用包内事实，不推测未记录的语音、战术分工或玩家意图。",
             "低置信度切片只能作为待复核信号，不能表述为稳定弱点。",

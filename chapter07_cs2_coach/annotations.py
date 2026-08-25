@@ -115,6 +115,13 @@ def select_annotation_cards(
     for card in high[:2]:
         add(card)
 
+    low = sorted(
+        (card for card in cards if card.risk_level == "low"),
+        key=lambda card: (card.risk_score, card.round_number),
+    )
+    if low:
+        add(low[0])
+
     for threshold in (70, 40):
         boundary = sorted(
             cards,
@@ -122,13 +129,6 @@ def select_annotation_cards(
         )
         for card in boundary[:2]:
             add(card)
-
-    low = sorted(
-        (card for card in cards if card.risk_level == "low"),
-        key=lambda card: (card.risk_score, card.round_number),
-    )
-    if low:
-        add(low[0])
 
     uncertain = sorted(
         (card for card in cards if card.confidence != "high"),

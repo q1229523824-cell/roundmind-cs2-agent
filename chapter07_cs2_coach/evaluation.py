@@ -33,6 +33,9 @@ class DecisionEvaluationResult(BaseModel):
     total: int
     passed: int
     accuracy: float
+    level_accuracy: dict[str, float]
+    score_range_accuracy: float
+    confidence_accuracy: float | None
     failures: list[str]
 
 
@@ -62,8 +65,22 @@ def _match_for(case: DecisionEvaluationCase) -> MatchRecord:
 def run_decision_evaluation() -> DecisionEvaluationResult:
     cases = load_evaluation_cases()
     failures: list[str] = []
+    level_totals: dict[str, int] = {"high": 0, "medium": 0, "low": 0}
+    level_passed: dict[str, int] = {"high": 0, "medium": 0, "low": 0}
+    score_range_passed = 0
+    confidence_total = 0
+    confidence_passed = 0
     for case in cases:
         card = score_engagement(_match_for(case), case.engagement)
+        level_totals[case.expected_level] += 1
+        if card.risk_level == case.expected_level:
+            level_passed[case.expected_level] += 1
+        if case.min_score <= card.risk_score <= case.max_score:
+            score_range_passed += 1
+        if case.expected_confidence is not None:
+            confidence_total += 1
+            if card.confidence == case.expected_confidence:
+                confidence_passed += 1
         valid = (
             card.risk_level == case.expected_level
             and case.min_score <= card.risk_score <= case.max_score
@@ -81,6 +98,18 @@ def run_decision_evaluation() -> DecisionEvaluationResult:
         total=len(cases),
         passed=passed,
         accuracy=round(passed / len(cases), 4) if cases else 0,
+        level_accuracy={
+            level: round(level_passed[level] / total, 4) if total else 0
+            for level, total in level_totals.items()
+        },
+        score_range_accuracy=(
+            round(score_range_passed / len(cases), 4) if cases else 0
+        ),
+        confidence_accuracy=(
+            round(confidence_passed / confidence_total, 4)
+            if confidence_total
+            else None
+        ),
         failures=failures,
     )
 

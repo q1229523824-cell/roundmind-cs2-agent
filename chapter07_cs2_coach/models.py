@@ -251,6 +251,38 @@ class DecisionCard(BaseModel):
     better_action: str = Field(min_length=1, max_length=400)
     knowledge_ids: list[str] = Field(default_factory=list, max_length=5)
     confidence: Literal["high", "medium", "low"]
+    situation_state: "RoundSituationState | None" = None
+
+
+class RoundSituationState(BaseModel):
+    """把接战快照转换为可解释的局势特征，供评分与模型共同使用。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    phase: Literal["opening", "mid_round", "late_round", "post_plant", "settled", "unknown"]
+    manpower: Literal["advantage", "even", "disadvantage", "last_alive"]
+    support: Literal["ready", "near_unready", "distant", "none", "unknown"]
+    objective: Literal["default", "bomb_planted", "round_settled", "unknown"]
+    tempo: Literal["expanding", "controlled"]
+    information_completeness: int = Field(ge=0, le=100)
+    labels: list[str] = Field(default_factory=list, max_length=8)
+
+
+class TrainingGoal(BaseModel):
+    """跨场可复核的单一训练目标，而不是一次性自然语言建议。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=80)
+    focus: str = Field(min_length=1, max_length=240)
+    metric: str = Field(min_length=1, max_length=160)
+    baseline_value: float = Field(ge=0, le=1)
+    latest_value: float | None = Field(default=None, ge=0, le=1)
+    target_value: float = Field(ge=0, le=1)
+    direction: Literal["lower", "higher"]
+    sample_size: int = Field(ge=0)
+    status: Literal["baseline", "improving", "achieved", "regressing", "insufficient_data"]
+    confidence: Literal["high", "medium", "low"]
 
 
 class PersonalContactContrast(BaseModel):
@@ -373,6 +405,7 @@ class PlayerProfileResponse(BaseModel):
     first_damage_disadvantage_segments: list[FirstDamageDisadvantageSegment] = Field(
         default_factory=list, max_length=8
     )
+    training_goals: list[TrainingGoal] = Field(default_factory=list, max_length=3)
 
 
 class DemoJobResponse(BaseModel):
