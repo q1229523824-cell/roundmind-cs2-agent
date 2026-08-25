@@ -48,6 +48,7 @@ render.yaml           Render Blueprint
 - 对击杀、死亡和主动脱离使用同一套事前条件评分，并比较继续接触、脱离重置、等待支援和创造道具条件；
 - 网页展示候选动作风险与成立前提，并允许匿名人工选择更合理动作，累计推荐一致率；
 - 可选 PostgreSQL 持久化：通过 SQLAlchemy Repository 保存完整比赛对象，Alembic 管理表结构迁移；
+- Demo 存储可在本地目录与 S3/Cloudflare R2 间切换，任务只传递随机对象键，解析后自动删除；
 - 基于完整交火生成武器分布、步枪/主狙/混合角色画像，并按武器、阵营、点位和距离拆解被先手伤害后的转化差距；
 - 可选 DeepSeek Planner，但只有显式启用时才会发送必要统计和问题。
 
@@ -60,6 +61,7 @@ python -m chapter07_cs2_coach.local_server
 
 未配置 `DATABASE_URL` 时使用内存仓库；配置 PostgreSQL 后，容器启动时会先执行 Alembic 迁移，再启动
 FastAPI。数据库配置、迁移和回退方式见 `docs/postgresql-persistence.md`。
+对象存储配置与安全边界见 `docs/object-storage.md`；未配置时保持本地临时存储。
 
 访问：
 
@@ -205,5 +207,5 @@ python -m chapter07_cs2_coach.annotation_cli evaluate `
 
 - 玩家昵称与 SteamID 由 Demo 自动提取，同名玩家也能稳定区分；
 - 部分新版本 CS2 Demo 可能暂时不兼容，系统会返回受控错误而不是生成空报告；
-- 任务和比赛保存在进程内，服务重启后会消失；
+- Demo 任务状态仍保存在进程内，服务重启后会消失；比赛可选持久化到 PostgreSQL；
 - 免费云实例适合学习与作品展示，不适合大规模生产流量。

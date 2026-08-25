@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from concurrent.futures import Executor, ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock, Timer
@@ -14,6 +15,10 @@ from chapter07_cs2_coach.models import (
     DemoJobResponse,
     DemoPlayerOption,
     MatchRecord,
+)
+from chapter07_cs2_coach.object_storage import (
+    DemoObjectStoreProtocol,
+    object_store_from_environment,
 )
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 
@@ -33,7 +38,8 @@ class _DemoJob:
     player_name: str | None
     player_steamid: str | None
     question: str
-    path: Path
+    path: Path | None = None
+    object_key: str | None = None
     status: str = "queued"
     progress: int = 10
     match: MatchRecord | None = None
@@ -53,6 +59,7 @@ class DemoJobManager:
         *,
         parser: CS2DemoMatchParser | None = None,
         executor: Executor | None = None,
+        object_store: DemoObjectStoreProtocol | None = None,
         max_pending_jobs: int = 2,
         player_selection_timeout_seconds: float = 15 * 60,
     ) -> None:
@@ -61,6 +68,7 @@ class DemoJobManager:
         self._executor = executor or ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="roundmind-demo"
         )
+        self.object_store = object_store or object_store_from_environment()
         self._jobs: dict[str, _DemoJob] = {}
         self._lock = RLock()
         self._max_pending_jobs = max_pending_jobs
@@ -83,29 +91,37 @@ class DemoJobManager:
             player_steamid=player_steamid,
             question=question,
         )
-        with self._lock:
-            pending = sum(
-                item.status in {"queued", "discovering", "awaiting_player", "parsing"}
-                for item in self._jobs.values()
-            )
-            if pending >= self._max_pending_jobs:
-                raise DemoQueueFullError("Demo 解析队列已满，请稍后重试。")
-            while len(self._jobs) >= 100:
-                terminal_id = next(
-                    (
-                        key
-                        for key, item in self._jobs.items()
-                        if item.status in {"completed", "failed"}
-                    ),
-                    None,
-                )
-                if terminal_id is None:
-                    break
-                del self._jobs[terminal_id]
-            self._jobs[job.job_id] = job
-        target = self._run if player_name else self._discover_players
-        self._executor.submit(target, job.job_id)
+        self._enqueue(job)
         return self.get(job.job_id)
+
+    def submit_upload(
+        self,
+        *,
+        path: Path,
+        filename: str,
+        player_name: str | None = None,
+        player_steamid: str | None = None,
+        question: str,
+    ) -> DemoJobResponse:
+        """把已校验上传转入对象存储，再创建只引用对象键的任务。"""
+
+        key: str | None = None
+        try:
+            key = self.object_store.put(path)
+            job = _DemoJob(
+                job_id=uuid4().hex,
+                object_key=key,
+                filename=filename,
+                player_name=player_name,
+                player_steamid=player_steamid,
+                question=question,
+            )
+            self._enqueue(job)
+            return self.get(job.job_id)
+        except Exception:
+            if key is not None:
+                self.object_store.delete(key)
+            raise
 
     def select_player(
         self,
@@ -171,7 +187,8 @@ class DemoJobManager:
             job.status = "discovering"
             job.progress = 25
         try:
-            options = self._parser.list_player_options(job.path)
+            with self._materialized(job) as path:
+                options = self._parser.list_player_options(path)
             timer = Timer(
                 self._player_selection_timeout_seconds,
                 self._expire_selection,
@@ -187,10 +204,10 @@ class DemoJobManager:
             timer.start()
         except DemoParseError as error:
             self._fail(job, str(error))
-            job.path.unlink(missing_ok=True)
+            self._delete_source(job)
         except Exception:
             self._fail(job, "服务器读取 Demo 玩家名单时发生未知错误。")
-            job.path.unlink(missing_ok=True)
+            self._delete_source(job)
 
     def _run(self, job_id: str) -> None:
         with self._lock:
@@ -202,7 +219,8 @@ class DemoJobManager:
         try:
             if not player_name:
                 raise DemoParseError("尚未选择要复盘的玩家。")
-            match = self._parser.parse(job.path, player_name, player_steamid)
+            with self._materialized(job) as path:
+                match = self._parser.parse(path, player_name, player_steamid)
             with self._lock:
                 job.progress = 80
             self._runtime.add_match(match)
@@ -223,7 +241,7 @@ class DemoJobManager:
             if job.selection_timer is not None:
                 job.selection_timer.cancel()
                 job.selection_timer = None
-            job.path.unlink(missing_ok=True)
+            self._delete_source(job)
 
     def _fail(self, job: _DemoJob, message: str) -> None:
         with self._lock:
@@ -240,4 +258,44 @@ class DemoJobManager:
             job.status = "failed"
             job.progress = 100
             job.selection_timer = None
-        job.path.unlink(missing_ok=True)
+        self._delete_source(job)
+
+    def _enqueue(self, job: _DemoJob) -> None:
+        with self._lock:
+            pending = sum(
+                item.status in {"queued", "discovering", "awaiting_player", "parsing"}
+                for item in self._jobs.values()
+            )
+            if pending >= self._max_pending_jobs:
+                raise DemoQueueFullError("Demo 解析队列已满，请稍后重试。")
+            while len(self._jobs) >= 100:
+                terminal_id = next(
+                    (
+                        key
+                        for key, item in self._jobs.items()
+                        if item.status in {"completed", "failed"}
+                    ),
+                    None,
+                )
+                if terminal_id is None:
+                    break
+                del self._jobs[terminal_id]
+            self._jobs[job.job_id] = job
+        target = self._run if job.player_name else self._discover_players
+        self._executor.submit(target, job.job_id)
+
+    @contextmanager
+    def _materialized(self, job: _DemoJob):
+        if job.path is not None:
+            yield job.path
+            return
+        if job.object_key is None:
+            raise FileNotFoundError("Demo 任务没有可读取的数据源。")
+        with self.object_store.materialize(job.object_key) as path:
+            yield path
+
+    def _delete_source(self, job: _DemoJob) -> None:
+        if job.path is not None:
+            job.path.unlink(missing_ok=True)
+        elif job.object_key is not None:
+            self.object_store.delete(job.object_key)

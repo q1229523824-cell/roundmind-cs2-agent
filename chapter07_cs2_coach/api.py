@@ -82,6 +82,7 @@ def create_app(
             "service": "roundmind-cs2-coach",
             "version": os.getenv("RENDER_GIT_COMMIT", "local")[:12],
             "storage": runtime.repository.backend_name,
+            "demo_storage": app.state.demo_jobs.object_store.backend_name,
         }
 
     @app.get("/api/matches", response_model=list[MatchRecord], tags=["matches"])
@@ -145,7 +146,7 @@ def create_app(
                 )
             assert temporary_path is not None
             try:
-                return app.state.demo_jobs.submit(
+                return app.state.demo_jobs.submit_upload(
                     path=temporary_path,
                     filename=filename,
                     player_name=player_name.strip() if player_name else None,
