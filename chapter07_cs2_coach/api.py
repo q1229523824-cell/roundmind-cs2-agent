@@ -208,6 +208,7 @@ def create_app(
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
+        expose_headers=["X-Request-ID", "Retry-After"],
     )
     app.mount("/static", StaticFiles(directory=WEB_DIRECTORY), name="static")
     bearer = HTTPBearer(auto_error=False)

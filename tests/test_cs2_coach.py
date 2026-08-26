@@ -1661,6 +1661,9 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(
             blocked.headers["access-control-allow-origin"], "http://localhost:3000"
         )
+        self.assertIn(
+            "X-Request-ID", blocked.headers["access-control-expose-headers"]
+        )
         self.assertEqual(len(blocked.headers["x-request-id"]), 32)
 
     def test_player_profile_endpoint_uses_steamid_and_map_filter(self):

@@ -238,6 +238,14 @@ function contactCardKey(matchId: string, card: ContactDecisionCard): string {
   return `${matchId}:${card.round_number}:${card.tick}:${card.side}:${card.location}`;
 }
 
+function errorWithRequestId(message: string, requestId: string | null): Error {
+  return new Error(requestId ? `${message}（请求编号 ${requestId}）` : message);
+}
+
+function responseError(response: Response, message: string): Error {
+  return errorWithRequestId(message, response.headers.get("X-Request-ID"));
+}
+
 function chooseTools(question: string): string[] {
   const rules: [string, string[]][] = [
     ["opening", ["首杀", "首死", "突破", "对枪", "开局"]],
@@ -374,6 +382,7 @@ export default function Home() {
   const [calibration, setCalibration] = useState<CalibrationSummary>({ total: 0, agreements: 0, agreement_rate: null });
   const coachAbortRef = useRef<AbortController | null>(null);
   const demoPollAbortRef = useRef<AbortController | null>(null);
+  const lastDemoFileRef = useRef<File | null>(null);
   const coachThreadEndRef = useRef<HTMLDivElement | null>(null);
   const tools = useMemo(() => chooseTools(query), [query]);
   const stats = useMemo(() => summarize(match), [match]);
@@ -501,9 +510,11 @@ export default function Home() {
     setCoachMode(null);
     setRememberedTurns(0);
     if (file.name.toLowerCase().endsWith(".dem")) {
+      lastDemoFileRef.current = file;
       await uploadDemo(file);
       return;
     }
+    lastDemoFileRef.current = null;
     try {
       const value: unknown = JSON.parse(await file.text());
       if (!isMatch(value)) throw new Error("JSON 缺少比赛或回合字段");
@@ -542,7 +553,10 @@ export default function Home() {
           try {
             const body = JSON.parse(request.responseText);
             if (request.status >= 200 && request.status < 300) resolve(body);
-            else reject(new Error(body.detail ?? "Demo 上传失败"));
+            else reject(errorWithRequestId(
+              body.detail ?? "Demo 上传失败",
+              request.getResponseHeader("X-Request-ID"),
+            ));
           } catch { reject(new Error("服务器返回了无法识别的响应")); }
         };
         request.onerror = () => reject(new Error("无法连接 Demo 解析服务"));
@@ -580,7 +594,7 @@ export default function Home() {
           : "服务器正在解析回合与玩家事件…");
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
         const response = await fetch(`${apiBase}/api/demo-jobs/${current.job_id}`, { signal: controller.signal });
-        if (!response.ok) throw new Error("无法查询 Demo 解析进度");
+        if (!response.ok) throw responseError(response, "无法查询 Demo 解析进度");
         current = await response.json();
       }
       if (current.status !== "completed" || !current.match) throw new Error("Demo 解析超时，请稍后重试");
@@ -597,7 +611,7 @@ export default function Home() {
     try {
       const response = await fetch(`${apiBase}/api/demo-jobs/${jobId}`, { method: "DELETE" });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.detail ?? "无法取消 Demo 任务");
+      if (!response.ok) throw responseError(response, body.detail ?? "无法取消 Demo 任务");
       setUploadStatus("Demo 解析已取消，临时文件已清理");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "无法取消 Demo 任务");
@@ -626,7 +640,7 @@ export default function Home() {
         }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.detail ?? "无法选择玩家");
+      if (!response.ok) throw responseError(response, body.detail ?? "无法选择玩家");
       const completed = await pollDemoJob(body);
       setMatch(completed.match as Match);
       setRemoteAnalysis(completed.analysis);
@@ -645,6 +659,13 @@ export default function Home() {
     }
   }
 
+  async function retryDemoUpload() {
+    const file = lastDemoFileRef.current;
+    if (!file || pendingDemoJobId) return;
+    setError("");
+    await uploadDemo(file);
+  }
+
   async function runAgent() {
     const nextQuestion = question.trim() || "综合复盘";
     setQuery(nextQuestion);
@@ -659,7 +680,7 @@ export default function Home() {
         body: JSON.stringify({ match_id: match.match_id, question: nextQuestion }),
       });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.detail ?? "Agent 分析失败");
+      if (!response.ok) throw responseError(response, body.detail ?? "Agent 分析失败");
       setRemoteAnalysis(body);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Agent 分析失败");
@@ -790,7 +811,7 @@ export default function Home() {
         <label className="upload" htmlFor="match-file">＋<strong>上传 CS2 Demo 或 JSON</strong><small>.dem 最大 {MAX_DEMO_MB} MB · 解析后自动删除</small><input id="match-file" type="file" accept=".dem,.json,application/json" onChange={(event) => upload(event.target.files?.[0])}/></label>
         {uploadProgress !== null && <div className="progress" aria-label={`处理进度 ${uploadProgress}%`}><i style={{ width: `${uploadProgress}%` }}/></div>}
         {(uploadStatus || pendingDemoJobId) && <div className="uploadMeta">{uploadStatus && <p className="uploadStatus">{uploadStatus}</p>}{pendingDemoJobId && <button onClick={cancelDemoJob}>取消任务</button>}</div>}
-        {error && <p className="error">{error}</p>}
+        {error && <div className="errorPanel"><p className="error">{error}</p>{lastDemoFileRef.current && !pendingDemoJobId && <button onClick={retryDemoUpload}>重新上传刚才的 Demo</button>}</div>}
         <label htmlFor="question">你最想弄清什么？</label>
         <textarea id="question" rows={5} value={question} onChange={(event) => setQuestion(event.target.value)}/>
         <div className="chips"><button onClick={() => setQuestion("为什么我杀了很多人还是输了？")}>击杀没转化？</button><button onClick={() => setQuestion("分析我的首杀、首死和补枪问题。")}>首轮交火</button><button onClick={() => setQuestion("我的道具和经济决策有什么问题？")}>道具与经济</button><button onClick={() => setQuestion("分析我的接战局势、队友距离和孤立前压决策。")}>接战决策</button></div>

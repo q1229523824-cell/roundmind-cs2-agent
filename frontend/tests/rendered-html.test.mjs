@@ -80,6 +80,7 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /停止/);
   assert.match(page, /复制回答/);
   assert.match(page, /重试上一问/);
+  assert.match(page, /重新上传刚才的 Demo/);
   assert.match(page, /Shift \+ Enter 换行/);
   assert.match(coachRoute, /export async function GET/);
   assert.match(coachRoute, /loadCoachHistory/);
