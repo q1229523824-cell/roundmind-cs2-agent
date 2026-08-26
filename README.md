@@ -170,6 +170,10 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 交火覆盖率、死亡快照覆盖率、重复事件、未知点位、关键上下文缺失和 SteamID，并输出 `pass/review/fail`。
 `fail` 的比赛不应更新长期画像，避免把解析器缺失误判为玩家习惯。详见 `docs/data-quality-gate.md`。
 
+质量完整不代表解析一定正确。`python -m chapter07_cs2_coach.gold_cli` 可以导出匿名待核对摘要，并将
+verified 人工金标准与新解析结果逐字段比较，输出关键字段、回合字段和总体准确率；批量 manifest 可用于
+游戏版本更新后的解析回归。使用流程和指标定义见 `docs/demo-gold-standard.md`。
+
 `/health` 会返回 Render 当前部署的 Git 提交前 12 位、当前队列占用和容量；`/ready` 会实际执行最小数据库
 查询。这样既能区分“代码已推送”和“新容器已上线”，也不会在 PostgreSQL 断开时把实例误判为可接流量。
 
