@@ -97,6 +97,23 @@ Redis/Celery 的进程职责、配置和 Worker 命令见 `docs/distributed-jobs
 本地桥接标记默认关闭，只有 `local_server` 启动器会显式开启；浏览器的私有网络预检也只允许
 RoundMind 官方网页来源，其他网站不能借此调用本地解析接口。
 
+### Windows 免 Python 版本
+
+仓库提供 `Build Windows Local Parser` 工作流。手动运行工作流会生成可下载 ZIP；推送 `v*` 标签时
+会同时发布到 GitHub Releases。用户解压后双击 `RoundMind-Local-Parser.exe` 即可，不需要安装
+Python。当前程序尚未购买代码签名证书，因此 Windows SmartScreen 可能显示“未知发布者”。
+
+开发者也可以在 Windows 本地构建：
+
+```powershell
+python -m pip install -r chapter07_cs2_coach/requirements-local.txt
+python -m pip install pyinstaller==6.22.2
+.\scripts\build-windows-local-parser.ps1
+```
+
+产物位于 `release/RoundMind-Local-Parser-win-x64.zip`。构建脚本会运行打包后 EXE 的 `--help`
+作为最小启动验证。
+
 运行后端测试：
 
 ```powershell

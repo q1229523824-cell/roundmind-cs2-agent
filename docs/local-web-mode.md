@@ -18,6 +18,16 @@
 
 ## 启动
 
+### 普通用户：Windows 压缩包
+
+从 GitHub Actions 构建产物或 Releases 下载 `RoundMind-Local-Parser-win-x64.zip`，完整解压后双击
+`RoundMind-Local-Parser.exe`。压缩包已经包含 Python 解释器和运行依赖。
+
+当前测试版没有商业代码签名证书，Windows SmartScreen 可能显示“未知发布者”。正式公开推广前应
+增加签名、安装器哈希与发布来源验证。
+
+### 开发者：Python 启动
+
 在项目根目录运行：
 
 ```powershell
@@ -44,7 +54,7 @@ https://roundmind-cs2-agent.yangmiaomiao37.chatgpt.site/?processing=local#worksp
 
 ## 当前限制
 
-- 其他用户需要在自己的电脑安装 Python 和项目依赖；
+- 源码启动需要 Python；普通用户可改用 Windows x64 免 Python 压缩包；
 - 本地服务关闭后，内存中的比赛与任务状态不会保留；
 - 浏览器或企业安全策略可能阻止网页访问回环地址，此时可使用 `--local-ui`；
-- 第一版不是桌面安装包，后续可用 PyInstaller/Tauri 提供一键安装和自动更新。
+- 当前 PyInstaller 版本是免安装 ZIP，不包含自动更新器；升级时需要重新下载新版本。

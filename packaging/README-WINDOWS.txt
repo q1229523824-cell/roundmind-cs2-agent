@@ -1,0 +1,26 @@
+RoundMind CS2 本地解析器（Windows x64）
+========================================
+
+使用方法：
+
+1. 解压整个 ZIP，不要只把 EXE 单独拖出来。
+2. 双击 RoundMind-Local-Parser.exe。
+3. 保持黑色窗口打开，浏览器会自动进入 RoundMind“本地模式”。
+4. 网页显示“本地解析器已连接”后，选择 CS2 .dem 文件。
+5. 使用结束后关闭黑色窗口，或在窗口中按 Ctrl+C。
+
+隐私说明：
+
+- 本地模式只监听 127.0.0.1，Demo 不会上传到 Render。
+- 原始 Demo 解析结束后会删除临时副本。
+- 默认不调用大模型；只有用户另行显式配置并启用时才会调用。
+
+常见问题：
+
+- Windows SmartScreen 可能提示“未知发布者”，因为当前测试版尚未购买代码签名证书。
+- 如果浏览器禁止公开网页连接本机，请关闭程序后使用命令：
+  RoundMind-Local-Parser.exe --local-ui
+- 端口 8765 被占用时，可使用：
+  RoundMind-Local-Parser.exe --port 8766 --local-ui
+- 只检查某个 Demo 是否兼容：
+  RoundMind-Local-Parser.exe --check-demo "D:\path\match.dem"

@@ -16,6 +16,8 @@ node_modules/
 .next/
 .vinext/
 dist/
+build/
+release/
 .wrangler/
 *.tsbuildinfo
 npm-debug.log*

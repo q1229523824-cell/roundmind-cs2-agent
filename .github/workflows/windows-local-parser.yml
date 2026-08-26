@@ -1,0 +1,52 @@
+name: Build Windows Local Parser
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - ".github/workflows/windows-local-parser.yml"
+      - "chapter07_cs2_coach/**"
+      - "packaging/**"
+      - "scripts/build-windows-local-parser.ps1"
+
+permissions:
+  contents: write
+
+jobs:
+  windows-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: chapter07_cs2_coach/requirements-local.txt
+      - name: Install local runtime and packager
+        run: |
+          python -m pip install -r chapter07_cs2_coach/requirements-local.txt
+          python -m pip install pyinstaller==6.22.2
+      - name: Build and smoke-test Windows bundle
+        shell: pwsh
+        run: ./scripts/build-windows-local-parser.ps1
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RoundMind-Local-Parser-win-x64
+          path: release/RoundMind-Local-Parser-win-x64.zip
+          if-no-files-found: error
+      - name: Publish tagged GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ github.ref_name }}" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "${{ github.ref_name }}" --generate-notes --title "RoundMind ${{ github.ref_name }}"
+          }
+          gh release upload "${{ github.ref_name }}" "release/RoundMind-Local-Parser-win-x64.zip" --clobber
