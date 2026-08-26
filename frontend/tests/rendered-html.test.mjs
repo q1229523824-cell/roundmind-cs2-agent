@@ -32,6 +32,9 @@ test("server-renders the RoundMind demo upload experience", async () => {
   const visibleHtml = html.replaceAll("<!-- -->", "");
   assert.match(visibleHtml, /<title>RoundMind · CS2 智能复盘教练<\/title>/i);
   assert.match(visibleHtml, /上传 CS2 Demo 或 JSON/);
+  assert.match(visibleHtml, /云端模式/);
+  assert.match(visibleHtml, /本地模式/);
+  assert.match(visibleHtml, /大文件不经过互联网/);
   assert.match(visibleHtml, /\.dem 最大 500 MB/);
   assert.match(visibleHtml, /accept="\.dem,\.json,application\/json"/);
   assert.match(visibleHtml, /选择要复盘的玩家/);
@@ -61,6 +64,9 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   ]);
 
   assert.match(page, /const MAX_DEMO_MB = 500/);
+  assert.match(page, /const LOCAL_API_BASE = "http:\/\/127\.0\.0\.1:8765"/);
+  assert.match(page, /\/api\/system\/local-bridge/);
+  assert.match(page, /get\("processing"\) === "local"/);
   assert.match(page, /file\.size > MAX_DEMO_BYTES/);
   assert.match(page, /\/api\/demo-jobs/);
   assert.match(page, /\/player/);

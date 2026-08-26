@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const MAX_DEMO_MB = 500;
 const MAX_DEMO_BYTES = MAX_DEMO_MB * 1024 * 1024;
+const LOCAL_API_BASE = "http://127.0.0.1:8765";
 
 type Round = {
   number: number;
@@ -198,6 +199,13 @@ type ParserAccuracy = {
   average_overall_accuracy: number | null;
   average_critical_accuracy: number | null;
   parser_version_changed_cases: number;
+  message: string;
+};
+
+type LocalBridgeStatus = {
+  enabled: boolean;
+  loopback_only: boolean;
+  max_demo_mb: number;
   message: string;
 };
 
@@ -454,6 +462,10 @@ export default function Home() {
   const [availablePlayers, setAvailablePlayers] = useState<Array<{ name: string; steamid: string }>>([]);
   const [selectedPlayer, setSelectedPlayer] = useState("");
   const [apiBase, setApiBase] = useState("");
+  const [cloudApiBase, setCloudApiBase] = useState("");
+  const [processingMode, setProcessingMode] = useState<"cloud" | "local">("cloud");
+  const [localBridge, setLocalBridge] = useState<LocalBridgeStatus | null>(null);
+  const [modePending, setModePending] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStatus, setUploadStatus] = useState("");
   const [remoteAnalysis, setRemoteAnalysis] = useState<AgentAnalysis | null>(null);
@@ -519,9 +531,57 @@ export default function Home() {
   useEffect(() => {
     fetch("/api/config")
       .then((response) => response.ok ? response.json() : Promise.reject())
-      .then((config: { backendUrl?: string }) => setApiBase((config.backendUrl ?? "").replace(/\/$/, "")))
-      .catch(() => setApiBase(""));
+      .then((config: { backendUrl?: string }) => {
+        const backend = (config.backendUrl ?? "").replace(/\/$/, "");
+        setCloudApiBase(backend);
+        if (new URLSearchParams(window.location.search).get("processing") === "local") {
+          void switchProcessingMode("local");
+        } else {
+          setApiBase(backend);
+        }
+      })
+      .catch(() => {
+        setCloudApiBase("");
+        setApiBase("");
+      });
   }, []);
+
+  async function switchProcessingMode(nextMode: "cloud" | "local") {
+    if (pendingDemoJobId) {
+      setError("请先等待当前 Demo 完成或取消任务，再切换解析方式。");
+      return;
+    }
+    if (nextMode === "cloud") {
+      setProcessingMode("cloud");
+      setApiBase(cloudApiBase);
+      setLocalBridge(null);
+      setError("");
+      setUploadStatus("已切换到云端解析");
+      return;
+    }
+    setModePending(true);
+    setError("");
+    setUploadStatus("正在检测本地解析器…");
+    try {
+      const response = await fetch(`${LOCAL_API_BASE}/api/system/local-bridge`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      const status = await response.json() as LocalBridgeStatus;
+      if (!response.ok || !status.enabled || !status.loopback_only) {
+        throw new Error("检测到的服务不是 RoundMind 本地解析器");
+      }
+      setLocalBridge(status);
+      setProcessingMode("local");
+      setApiBase(LOCAL_API_BASE);
+      setUploadStatus("本地解析器已连接，Demo 不会上传到 Render");
+    } catch {
+      setLocalBridge(null);
+      setError("没有检测到本地解析器。请先在项目目录运行本地启动命令，再点击“重新检测”。");
+      setUploadStatus("");
+    } finally {
+      setModePending(false);
+    }
+  }
 
   useEffect(() => {
     if (!apiBase) return;
@@ -599,6 +659,11 @@ export default function Home() {
 
   useEffect(() => {
     if (!remoteAnalysis || !match.player_steamid) return;
+    if (processingMode === "local") {
+      setCoachMessages([]);
+      setRememberedTurns(0);
+      return;
+    }
     const controller = new AbortController();
     const params = new URLSearchParams({
       playerSteamid: match.player_steamid,
@@ -621,7 +686,7 @@ export default function Home() {
       })
       .finally(() => setCoachStage(""));
     return () => controller.abort();
-  }, [remoteAnalysis, match.player_steamid, match.map_name]);
+  }, [remoteAnalysis, match.player_steamid, match.map_name, processingMode]);
 
   useEffect(() => {
     coachThreadEndRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -771,7 +836,9 @@ export default function Home() {
       return;
     }
     setUploadProgress(0);
-    setUploadStatus("正在上传 Demo…");
+    setUploadStatus(processingMode === "local"
+      ? "正在把 Demo 交给本机解析器（不会经过互联网）…"
+      : "正在上传 Demo 到云端…");
     setPendingDemoJobId("");
     setAvailablePlayers([]);
     setSelectedPlayer("");
@@ -892,7 +959,9 @@ export default function Home() {
       setRememberedTurns(0);
       setQuery(question.trim() || "综合复盘");
       setUploadProgress(100);
-      setUploadStatus("Demo 解析完成，临时文件已删除");
+      setUploadStatus(processingMode === "local"
+        ? "本地解析完成，Demo 临时副本已删除"
+        : "云端解析完成，Demo 临时文件已删除");
       setPendingDemoJobId("");
       if (completed.match) await loadQuality(completed.match.match_id);
     } catch (reason) {
@@ -959,10 +1028,21 @@ export default function Home() {
       3500,
     );
     try {
-      const response = await fetch("/api/coach/chat", {
+      const localHistory = coachMessages
+        .filter((message) => message.content.trim())
+        .slice(-12)
+        .map((message) => ({ role: message.role, content: message.content }));
+      const response = await fetch(
+        processingMode === "local" ? `${apiBase}/api/coach/chat` : "/api/coach/chat",
+        {
         method: "POST",
         headers: backendHeaders(true),
-        body: JSON.stringify({
+        body: JSON.stringify(processingMode === "local" ? {
+          player_steamid: match.player_steamid,
+          map_name: match.map_name,
+          question: nextQuestion,
+          conversation_history: localHistory,
+        } : {
           playerSteamid: match.player_steamid,
           mapName: match.map_name,
           question: nextQuestion,
@@ -970,7 +1050,7 @@ export default function Home() {
         signal: controller.signal,
       });
       const body = await response.json() as CoachChatResponse & { error?: string };
-      if (!response.ok) throw new Error(body.error ?? "教练暂时无法回答");
+      if (!response.ok) throw new Error(body.error ?? (body as { detail?: string }).detail ?? "教练暂时无法回答");
       setCoachMessages((current) => [...current, {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -978,7 +1058,9 @@ export default function Home() {
         response: body,
       }]);
       setCoachMode(body.mode);
-      setRememberedTurns(body.remembered_turns);
+      setRememberedTurns(processingMode === "local"
+        ? Math.min(6, Math.floor(localHistory.length / 2) + 1)
+        : body.remembered_turns);
     } catch (reason) {
       const wasStopped = reason instanceof DOMException && reason.name === "AbortError";
       setCoachError(wasStopped ? "本次生成已停止，你可以修改问题后重试。" : reason instanceof Error ? reason.message : "教练对话失败");
@@ -1012,6 +1094,13 @@ export default function Home() {
 
   async function resetCoachConversation() {
     if (!match.player_steamid) return;
+    if (processingMode === "local") {
+      setCoachMessages([]);
+      setCoachMode(null);
+      setRememberedTurns(0);
+      setCoachError("");
+      return;
+    }
     setCoachPending(true);
     setCoachError("");
     try {
@@ -1036,7 +1125,7 @@ export default function Home() {
   }
 
   return <main>
-    <nav><a href="#top" className="brand"><b>R</b> ROUNDMIND</a><div className="navActions"><a href="#player-hub">比赛历史</a><a href="#workspace">开始复盘</a><span className="status">● {apiBase ? "DEMO API READY" : "BROWSER DEMO"}</span></div></nav>
+    <nav><a href="#top" className="brand"><b>R</b> ROUNDMIND</a><div className="navActions"><a href="#player-hub">比赛历史</a><a href="#workspace">开始复盘</a><span className="status">● {processingMode === "local" && localBridge ? "LOCAL PARSER READY" : apiBase ? "CLOUD API READY" : "BROWSER DEMO"}</span></div></nav>
     <section className="hero" id="top">
       <p className="eyebrow">EVIDENCE-BASED MATCH REVIEW</p>
       <h1>别只看战绩。<br/><em>找出真正丢分的习惯。</em></h1>
@@ -1067,12 +1156,18 @@ export default function Home() {
       <aside className="controls">
         <p className="eyebrow">01 / MATCH INPUT</p><h2>开始一次复盘</h2>
         <p className="fieldLabel">比赛数据</p><div className="selectLike">{match.player_name} · {match.map_name} · {match.team_score}:{match.opponent_score}</div>
+        <div className="processingMode" aria-label="Demo 解析方式">
+          <button className={processingMode === "cloud" ? "active" : ""} onClick={() => switchProcessingMode("cloud")}><b>云端模式</b><span>无需安装，适合较小 Demo</span></button>
+          <button className={processingMode === "local" ? "active" : ""} disabled={modePending} onClick={() => switchProcessingMode("local")}><b>{modePending ? "检测中…" : "本地模式"}</b><span>大文件不经过互联网</span></button>
+        </div>
+        {processingMode === "local" && localBridge && <div className="localReady"><b>本地解析器已连接</b><span>127.0.0.1 · 最大 {localBridge.max_demo_mb}MB · Demo 留在本机</span></div>}
+        {processingMode === "cloud" && <p className="modeHint">云端上传速度取决于网络；300–500MB Demo 建议先启动本地模式。</p>}
         <label htmlFor="player-select">选择要复盘的玩家</label>
         <select id="player-select" value={selectedPlayer} disabled={!availablePlayers.length || !pendingDemoJobId} onChange={(event) => selectDemoPlayer(event.target.value)}>
           <option value="">上传 Demo 后自动读取玩家名单</option>
           {availablePlayers.map((player) => <option value={player.steamid} key={player.steamid}>{player.name} · Steam …{player.steamid.slice(-6)}</option>)}
         </select>
-        <label className="upload" htmlFor="match-file">＋<strong>上传 CS2 Demo 或 JSON</strong><small>.dem 最大 {MAX_DEMO_MB} MB · 解析后自动删除</small><input id="match-file" type="file" accept=".dem,.json,application/json" onChange={(event) => upload(event.target.files?.[0])}/></label>
+        <label className="upload" htmlFor="match-file">＋<strong>{processingMode === "local" ? "选择本机 CS2 Demo 或 JSON" : "上传 CS2 Demo 或 JSON"}</strong><small>.dem 最大 {MAX_DEMO_MB} MB · {processingMode === "local" ? "只传给 127.0.0.1" : "解析后自动删除"}</small><input id="match-file" type="file" accept=".dem,.json,application/json" onChange={(event) => upload(event.target.files?.[0])}/></label>
         {uploadProgress !== null && <div className="progress" aria-label={`处理进度 ${uploadProgress}%`}><i style={{ width: `${uploadProgress}%` }}/></div>}
         {(uploadStatus || pendingDemoJobId) && <div className="uploadMeta">{uploadStatus && <p className="uploadStatus">{uploadStatus}</p>}{pendingDemoJobId && <button onClick={cancelDemoJob}>取消任务</button>}</div>}
         {error && <div className="errorPanel"><p className="error">{error}</p>{lastDemoFileRef.current && !pendingDemoJobId && <button onClick={retryDemoUpload}>重新上传刚才的 Demo</button>}</div>}

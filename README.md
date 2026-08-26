@@ -69,6 +69,14 @@ python -m pip install -r chapter07_cs2_coach/requirements.txt
 python -m chapter07_cs2_coach.local_server
 ```
 
+启动后会自动打开公开网页并切换到“本地模式”。网页先验证本机
+`http://127.0.0.1:8765/api/system/local-bridge`，验证成功后才允许选择 Demo。
+大文件只从浏览器传到本机 Python，不经过 Render。需要使用后端自带的简易页面时运行：
+
+```powershell
+python -m chapter07_cs2_coach.local_server --local-ui
+```
+
 未配置 `DATABASE_URL` 时使用内存仓库；配置 PostgreSQL 后，容器启动时会先执行 Alembic 迁移，再启动
 FastAPI。数据库配置、迁移和回退方式见 `docs/postgresql-persistence.md`。
 对象存储配置与安全边界见 `docs/object-storage.md`；未配置时保持本地临时存储。
@@ -78,7 +86,7 @@ Redis/Celery 的进程职责、配置和 Worker 命令见 `docs/distributed-jobs
 向量生成边界、索引命令和评测方式见 `docs/pgvector-rag.md`。
 公开服务的限流、请求追踪和任务取消边界见 `docs/request-controls.md`。
 
-访问：
+本地服务地址：
 
 - 网页：`http://127.0.0.1:8765`
 - Swagger：`http://127.0.0.1:8765/docs`
@@ -86,6 +94,8 @@ Redis/Celery 的进程职责、配置和 Worker 命令见 `docs/distributed-jobs
 - 就绪检查：`http://127.0.0.1:8765/ready`
 
 本地模式只监听 `127.0.0.1`。大文件经过本机回环地址传给 Python，不会上传到 Render。
+本地桥接标记默认关闭，只有 `local_server` 启动器会显式开启；浏览器的私有网络预检也只允许
+RoundMind 官方网页来源，其他网站不能借此调用本地解析接口。
 
 运行后端测试：
 

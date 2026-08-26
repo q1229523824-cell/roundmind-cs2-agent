@@ -1638,6 +1638,31 @@ class CS2CoachApiTests(unittest.TestCase):
             preflight.headers["access-control-allow-origin"],
             "https://roundmind-cs2-agent.yangmiaomiao37.chatgpt.site",
         )
+        bridge = self.client.get("/api/system/local-bridge")
+        self.assertEqual(bridge.status_code, 200)
+        self.assertFalse(bridge.json()["enabled"])
+
+    def test_local_bridge_is_explicit_and_allows_first_party_private_network(self):
+        origin = "https://roundmind-cs2-agent.yangmiaomiao37.chatgpt.site"
+        with patch.dict("os.environ", {"ROUNDMIND_LOCAL_BRIDGE": "true"}):
+            client = TestClient(create_app(CS2CoachRuntime.create()))
+            bridge = client.get("/api/system/local-bridge")
+            preflight = client.options(
+                "/api/demo-jobs",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Private-Network": "true",
+                },
+            )
+
+        self.assertTrue(bridge.json()["enabled"])
+        self.assertTrue(bridge.json()["loopback_only"])
+        self.assertEqual(bridge.json()["max_demo_mb"], 500)
+        self.assertEqual(preflight.status_code, 200)
+        self.assertEqual(
+            preflight.headers["access-control-allow-private-network"], "true"
+        )
 
     def test_ready_reports_database_failure_without_leaking_details(self):
         runtime = CS2CoachRuntime(repository=UnavailableRepository())

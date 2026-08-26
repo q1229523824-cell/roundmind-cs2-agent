@@ -99,6 +99,11 @@ def _enabled(name: str, default: bool = False) -> bool:
     return os.getenv(name, str(default).lower()).strip().lower() == "true"
 
 
+def _local_bridge_enabled() -> bool:
+    """Only the loopback launcher enables browser-to-local Demo processing."""
+    return _enabled("ROUNDMIND_LOCAL_BRIDGE")
+
+
 def _rate_policy(
     path: str, method: str, settings: dict[str, int]
 ) -> tuple[str, int, int] | None:
@@ -214,6 +219,7 @@ def create_app(
         allow_credentials=False,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
+        allow_private_network=_local_bridge_enabled(),
         expose_headers=["X-Request-ID", "Retry-After"],
     )
     app.mount("/static", StaticFiles(directory=WEB_DIRECTORY), name="static")
@@ -369,6 +375,19 @@ def create_app(
             "status_counts": {},
             "success_rate": None,
             "average_duration_ms": None,
+        }
+
+    @app.get("/api/system/local-bridge", tags=["system"])
+    def local_bridge() -> dict[str, object]:
+        return {
+            "enabled": _local_bridge_enabled(),
+            "loopback_only": _local_bridge_enabled(),
+            "max_demo_mb": MAX_DEMO_MB,
+            "message": (
+                "本地解析服务已连接；Demo 只通过 127.0.0.1 传输。"
+                if _local_bridge_enabled()
+                else "当前是云端 API，不是本地解析服务。"
+            ),
         }
 
     @app.get("/api/system/parser-accuracy", tags=["system"])

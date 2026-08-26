@@ -33,8 +33,12 @@ RoundMind 使用 FastAPI 接收 CS2 Source 2 `.dem`，用 `demoparser2` 提取�
 & "C:\Users\19194\.conda\envs\langchain1.2\python.exe" -m chapter07_cs2_coach.local_server
 ```
 
-命令会打开 `http://127.0.0.1:8765`。浏览器仍会把文件传给 Python，但流量只经过本机
-`127.0.0.1`，不会进入 Render 或互联网，因此 300–500 MB Demo 也能快速开始解析。
+命令会打开 RoundMind 公开网页并自动选择“本地模式”。网页通过
+`http://127.0.0.1:8765` 把文件交给 Python，但流量只经过本机回环地址，不会进入 Render，
+因此 300–500 MB Demo 不再受公网上传速度限制。运行时加 `--local-ui` 可改为打开后端自带页面。
+
+本地模式通过专用状态接口确认连接对象，并只为配置过的 RoundMind 第一方网页返回浏览器私有网络
+许可头；服务始终绑定 `127.0.0.1`，不会暴露给局域网设备。
 
 统计口径：回合使用击杀事件的当前回合编号；装备价值取冻结时间结束时的
 `current_equip_value`；有效闪白只统计持续至少 1 秒的敌方玩家，并按 tick 与 SteamID 去重。
