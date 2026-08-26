@@ -188,6 +188,19 @@ type JobMetrics = {
   average_duration_ms: number | null;
 };
 
+type ParserAccuracy = {
+  available: boolean;
+  gate: "pass" | "fail" | "awaiting_verified_dataset";
+  verified_cases: number;
+  passed_cases: number;
+  failed_cases: number;
+  pass_rate: number | null;
+  average_overall_accuracy: number | null;
+  average_critical_accuracy: number | null;
+  parser_version_changed_cases: number;
+  message: string;
+};
+
 type CoachChatResponse = {
   mode: "offline" | "llm";
   answer: string;
@@ -469,6 +482,7 @@ export default function Home() {
   const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(null);
   const [qualityAudit, setQualityAudit] = useState<QualityAudit | null>(null);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(null);
+  const [parserAccuracy, setParserAccuracy] = useState<ParserAccuracy | null>(null);
   const coachAbortRef = useRef<AbortController | null>(null);
   const demoPollAbortRef = useRef<AbortController | null>(null);
   const lastDemoFileRef = useRef<File | null>(null);
@@ -516,11 +530,13 @@ export default function Home() {
     Promise.all([
       fetch(`${apiBase}/health`).then((response) => response.json()),
       fetch(`${apiBase}/api/system/job-metrics`).then((response) => response.json()),
-    ]).then(async ([health, metrics]: [{ auth?: string }, JobMetrics]) => {
+      fetch(`${apiBase}/api/system/parser-accuracy`).then((response) => response.json()),
+    ]).then(async ([health, metrics, accuracy]: [{ auth?: string }, JobMetrics, ParserAccuracy]) => {
       if (disposed) return;
       const enabled = health.auth === "required";
       setAuthAvailable(enabled);
       setJobMetrics(metrics);
+      setParserAccuracy(accuracy);
       if (!enabled || !storedToken) return;
       const response = await fetch(`${apiBase}/api/auth/me`, {
         headers: { Authorization: `Bearer ${storedToken}` },
@@ -1034,7 +1050,9 @@ export default function Home() {
         <div><span>近期成功率</span><b>{jobMetrics?.success_rate === null || jobMetrics?.success_rate === undefined ? "等待样本" : `${(jobMetrics.success_rate * 100).toFixed(0)}%`}</b></div>
         <div><span>平均处理时间</span><b>{formatDuration(jobMetrics?.average_duration_ms ?? null)}</b></div>
         <div><span>数据质量</span><b>{qualityAudit ? `${qualityAudit.quality_score}/100` : "解析后生成"}</b></div>
+        <div><span>解析准确率</span><b>{parserAccuracy?.available && parserAccuracy.average_critical_accuracy !== null ? `${(parserAccuracy.average_critical_accuracy * 100).toFixed(1)}%` : "等待真值"}</b></div>
       </div>
+      <div className={`goldStatus ${parserAccuracy?.gate ?? "awaiting_verified_dataset"}`}><b>GOLD STANDARD</b><span>{parserAccuracy?.message ?? "正在读取解析器评测状态…"}</span>{parserAccuracy?.available && <small>{parserAccuracy.verified_cases} 场 verified · {parserAccuracy.passed_cases} 通过 · {parserAccuracy.failed_cases} 失败</small>}</div>
       {authAvailable === false && <div className="authNotice"><b>当前以匿名体验模式运行</b><p>历史与玩家画像接口已经完成；在 Render 配置数据库和登录密钥后，这里会自动开放账户登录与数据隔离。</p></div>}
       {authAvailable && !authUser && <div className="authPanel">
         <div><p className="eyebrow">PRIVATE MATCH HISTORY</p><h3>{authMode === "login" ? "登录后保存你的复盘" : "创建 RoundMind 账户"}</h3><p>登录用户的比赛、Demo 任务、画像和教练上下文会按账户隔离。</p></div>

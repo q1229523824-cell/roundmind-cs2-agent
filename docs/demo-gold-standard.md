@@ -83,3 +83,9 @@ python -m chapter07_cs2_coach.gold_cli batch `
 - `parser_version_changed`：解析库版本或 RoundMind 解析器源码相对基线是否变化。
 
 这些指标衡量解析器，不衡量玩家水平或教练建议质量。决策建议仍需使用独立的人工动作标注集评测。
+
+## CI 与网页状态
+
+GitHub Actions 会在每次推送和 Pull Request 中运行后端完整测试、金标准 CLI 契约测试以及前端构建测试。真实 Demo 和 SteamID 不进入 GitHub；本机通过批量回归后，可将匿名 `batch.json` 路径配置为 `ROUNDMIND_GOLD_REPORT`。
+
+后端 `GET /api/system/parser-accuracy` 只返回 verified 场数、通过数、平均准确率和版本变化数量，不返回 case ID、SteamID、文件名或本地路径。未配置报告时明确返回 `awaiting_verified_dataset`，网页显示“等待真值”，不会用自动草稿显示虚假的 100%。

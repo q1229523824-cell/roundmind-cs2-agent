@@ -47,6 +47,7 @@ from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.request_controls import InMemoryRateLimiter, client_identifier
 from chapter07_cs2_coach.database import MatchOwnershipConflictError
 from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
+from chapter07_cs2_coach.gold_status import load_public_gold_status
 from chapter07_cs2_coach.auth import (
     AuthConfigurationError,
     AuthService,
@@ -369,6 +370,10 @@ def create_app(
             "success_rate": None,
             "average_duration_ms": None,
         }
+
+    @app.get("/api/system/parser-accuracy", tags=["system"])
+    def parser_accuracy():
+        return load_public_gold_status(os.getenv("ROUNDMIND_GOLD_REPORT"))
 
     @app.post("/api/matches", response_model=MatchRecord, tags=["matches"])
     def add_match(

@@ -2,7 +2,12 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from chapter07_cs2_coach.gold_cli import evaluate_manifest
+from chapter07_cs2_coach.gold_cli import (
+    BatchCaseResult,
+    BatchRegressionReport,
+    evaluate_manifest,
+)
+from chapter07_cs2_coach.gold_status import summarize_batch, unavailable_status
 
 from chapter07_cs2_coach.gold_standard import (
     DemoGoldStandard,
@@ -95,6 +100,44 @@ class DemoGoldStandardTests(unittest.TestCase):
             self.assertEqual(report.failed, 1)
             self.assertNotIn(secret_name, serialized)
             self.assertNotIn(str(root), serialized)
+
+    def test_public_status_only_contains_aggregate_metrics(self):
+        batch = BatchRegressionReport(
+            total=2,
+            passed=1,
+            failed=1,
+            cases=[
+                BatchCaseResult(
+                    case_id="pass-case",
+                    passed=True,
+                    overall_accuracy=1,
+                    critical_accuracy=1,
+                    parser_version_changed=False,
+                ),
+                BatchCaseResult(
+                    case_id="fail-case",
+                    passed=False,
+                    overall_accuracy=0.95,
+                    critical_accuracy=0.9,
+                    parser_version_changed=True,
+                ),
+            ],
+        )
+        status = summarize_batch(batch)
+
+        self.assertTrue(status.available)
+        self.assertEqual(status.gate, "fail")
+        self.assertEqual(status.verified_cases, 2)
+        self.assertEqual(status.pass_rate, 0.5)
+        self.assertEqual(status.average_critical_accuracy, 0.95)
+        self.assertEqual(status.parser_version_changed_cases, 1)
+        self.assertNotIn("case_id", status.model_dump_json())
+
+    def test_missing_public_report_never_claims_accuracy(self):
+        status = unavailable_status()
+        self.assertFalse(status.available)
+        self.assertEqual(status.gate, "awaiting_verified_dataset")
+        self.assertIsNone(status.pass_rate)
 
 
 if __name__ == "__main__":

@@ -7,11 +7,16 @@
 .hubHeader > div > p:last-child { color: var(--muted); font-size: 12px; }
 .accountBadge { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 11px; }
 .accountBadge button, .authSwitch { border: 0; background: transparent; color: var(--accent); cursor: pointer; font-size: 10px; }
-.opsMetrics { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); margin-top: 24px; }
+.opsMetrics { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); margin-top: 24px; }
 .opsMetrics > div { padding: 15px; border-right: 1px solid var(--line); }
 .opsMetrics > div:last-child { border-right: 0; }
 .opsMetrics span { display: block; color: var(--muted); font-size: 9px; margin-bottom: 7px; }
 .opsMetrics b { font: 700 17px var(--font-mono), monospace; }
+.goldStatus { display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center; margin-top: 10px; padding: 11px 14px; border-left: 3px solid #88906f; background: #171912; color: var(--muted); font-size: 11px; }
+.goldStatus b { color: var(--paper); font: 700 10px var(--font-mono), monospace; letter-spacing: .08em; }
+.goldStatus small { font: 10px var(--font-mono), monospace; }
+.goldStatus.pass { border-left-color: var(--acid); }
+.goldStatus.fail { border-left-color: #ff6b5e; }
 .authNotice, .authPanel { margin-top: 18px; padding: 18px; border-left: 3px solid var(--warning); background: #0d0f0c; }
 .authNotice b { font-size: 12px; }
 .authNotice p, .authPanel p { color: var(--muted); font-size: 11px; line-height: 1.6; margin-bottom: 0; }
@@ -57,4 +62,4 @@
 .qualityChecks p, .qualityChecks small, .qualityWarning { color: var(--muted); font-size: 9px; line-height: 1.55; }
 .qualityWarning { padding: 10px; background: rgba(255,200,87,.06); }
 @media (max-width: 900px) { .accountGrid, .authPanel { grid-template-columns: 1fr; } .qualityChecks { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 620px) { .navActions > a { display: none; } .playerHub { padding: 22px 16px; } .hubHeader { flex-direction: column; } .opsMetrics { grid-template-columns: repeat(2, 1fr); } .opsMetrics > div { border-bottom: 1px solid var(--line); } .qualityChecks { grid-template-columns: 1fr; } .historyList article { grid-template-columns: 1fr auto; } .historyList i, .historyList small { display: none; } }
+@media (max-width: 620px) { .navActions > a { display: none; } .playerHub { padding: 22px 16px; } .hubHeader { flex-direction: column; } .opsMetrics { grid-template-columns: repeat(2, 1fr); } .opsMetrics > div { border-bottom: 1px solid var(--line); } .goldStatus { grid-template-columns: 1fr; } .qualityChecks { grid-template-columns: 1fr; } .historyList article { grid-template-columns: 1fr auto; } .historyList i, .historyList small { display: none; } }

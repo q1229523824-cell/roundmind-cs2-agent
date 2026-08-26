@@ -1654,6 +1654,7 @@ class CS2CoachApiTests(unittest.TestCase):
         quality = self.client.get(f"/api/matches/{match.match_id}/quality")
         summary = self.client.get("/api/quality-summary")
         metrics = self.client.get("/api/system/job-metrics")
+        parser_accuracy = self.client.get("/api/system/parser-accuracy")
 
         self.assertEqual(history.status_code, 200)
         item = next(row for row in history.json() if row["match_id"] == match.match_id)
@@ -1664,6 +1665,11 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(metrics.status_code, 200)
         self.assertEqual(metrics.json()["pending_jobs"], 0)
         self.assertIn("status_counts", metrics.json())
+        self.assertEqual(parser_accuracy.status_code, 200)
+        self.assertFalse(parser_accuracy.json()["available"])
+        self.assertEqual(
+            parser_accuracy.json()["gate"], "awaiting_verified_dataset"
+        )
 
     def test_heavy_endpoint_rate_limit_and_request_id(self):
         with patch.dict(

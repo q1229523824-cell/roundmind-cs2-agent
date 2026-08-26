@@ -18,6 +18,7 @@
 ## 新增接口
 
 - `GET /api/system/job-metrics`：返回保留任务数、等待任务数、各状态数量、成功率和平均耗时。
+- `GET /api/system/parser-accuracy`：返回匿名 verified Demo 解析准确率；没有人工真值时明确显示等待状态。
 - `GET /api/match-history`：返回最近 50 场轻量比赛摘要和质量分。
 - `GET /api/matches/{match_id}/quality`：返回指定比赛的数据质量门禁结果。
 - `GET /api/quality-summary`：返回当前可见比赛的批量质量汇总。
