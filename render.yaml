@@ -20,6 +20,16 @@ services:
         value: "2"
       - key: ROUNDMIND_DEMO_WORKERS
         value: "1"
+      - key: ROUNDMIND_RATE_LIMIT_ENABLED
+        value: "true"
+      - key: ROUNDMIND_TRUST_PROXY_HEADERS
+        value: "true"
+      - key: ROUNDMIND_UPLOADS_PER_HOUR
+        value: "6"
+      - key: ROUNDMIND_HEAVY_REQUESTS_PER_MINUTE
+        value: "30"
+      - key: ROUNDMIND_AUTH_ATTEMPTS_PER_15M
+        value: "10"
       - key: ROUNDMIND_OBJECT_STORAGE
         value: local
       - key: ROUNDMIND_AUTH_REQUIRED

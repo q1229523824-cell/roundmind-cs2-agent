@@ -48,6 +48,7 @@ class _DemoJob:
     available_players: list[str] = field(default_factory=list)
     player_options: list[DemoPlayerOption] = field(default_factory=list)
     error: str | None = None
+    cancel_requested: bool = False
     selection_timer: Timer | None = field(default=None, repr=False)
 
 
@@ -208,9 +209,35 @@ class DemoJobManager:
                 error=job.error,
             )
 
+    def cancel(self, job_id: str, owner_id: str | None = None) -> DemoJobResponse:
+        delete_now = False
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None or (owner_id is not None and job.owner_id != owner_id):
+                raise KeyError(job_id)
+            if job.status == "cancelled":
+                return self.get(job_id, owner_id)
+            if job.status == "finalizing":
+                raise DemoJobStateError("Demo 已进入结果保存阶段，不能取消。")
+            if job.status in {"completed", "failed"}:
+                raise DemoJobStateError("已结束的 Demo 任务不能取消。")
+            delete_now = job.status in {"queued", "awaiting_player"}
+            job.cancel_requested = True
+            job.status = "cancelled"
+            job.progress = 100
+            job.error = "Demo 解析已取消。"
+            if job.selection_timer is not None:
+                job.selection_timer.cancel()
+                job.selection_timer = None
+        if delete_now:
+            self._delete_source(job)
+        return self.get(job_id, owner_id)
+
     def _discover_players(self, job_id: str) -> None:
         with self._lock:
             job = self._jobs[job_id]
+            if job.cancel_requested:
+                return
             job.status = "discovering"
             job.progress = 25
         try:
@@ -222,12 +249,19 @@ class DemoJobManager:
                 args=(job_id,),
             )
             timer.daemon = True
+            cancelled = False
             with self._lock:
-                job.available_players = [item.name for item in options]
-                job.player_options = options
-                job.status = "awaiting_player"
-                job.progress = 45
-                job.selection_timer = timer
+                if job.cancel_requested:
+                    cancelled = True
+                else:
+                    job.available_players = [item.name for item in options]
+                    job.player_options = options
+                    job.status = "awaiting_player"
+                    job.progress = 45
+                    job.selection_timer = timer
+            if cancelled:
+                self._delete_source(job)
+                return
             timer.start()
         except DemoParseError as error:
             self._fail(job, str(error))
@@ -239,6 +273,8 @@ class DemoJobManager:
     def _run(self, job_id: str) -> None:
         with self._lock:
             job = self._jobs[job_id]
+            if job.cancel_requested:
+                return
             job.status = "parsing"
             job.progress = 55
             player_name = job.player_name
@@ -249,7 +285,10 @@ class DemoJobManager:
             with self._materialized(job) as path:
                 match = self._parser.parse(path, player_name, player_steamid)
             with self._lock:
+                if job.cancel_requested:
+                    return
                 job.progress = 80
+                job.status = "finalizing"
             self._runtime.add_match(match, job.owner_id)
             analysis = self._runtime.analyze(
                 match_id=match.match_id,
@@ -273,6 +312,8 @@ class DemoJobManager:
 
     def _fail(self, job: _DemoJob, message: str) -> None:
         with self._lock:
+            if job.cancel_requested:
+                return
             job.error = message
             job.status = "failed"
             job.progress = 100
@@ -311,7 +352,8 @@ class DemoJobManager:
 
     def _pending_count_unlocked(self) -> int:
         return sum(
-            item.status in {"queued", "discovering", "awaiting_player", "parsing"}
+            item.status
+            in {"queued", "discovering", "awaiting_player", "parsing", "finalizing"}
             for item in self._jobs.values()
         )
 

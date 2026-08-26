@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from concurrent.futures import Future
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
@@ -1632,6 +1633,36 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json(), {"detail": "数据库暂时不可用。"})
 
+    def test_heavy_endpoint_rate_limit_and_request_id(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "ROUNDMIND_RATE_LIMIT_ENABLED": "true",
+                "ROUNDMIND_TRUST_PROXY_HEADERS": "true",
+                "ROUNDMIND_HEAVY_REQUESTS_PER_MINUTE": "2",
+            },
+        ):
+            client = TestClient(create_app(CS2CoachRuntime.create()))
+        headers = {
+            "Origin": "http://localhost:3000",
+            "X-Forwarded-For": "203.0.113.9",
+        }
+        payload = {"match_id": SAMPLE_MATCH.match_id, "question": "分析首杀"}
+
+        first = client.post("/api/analyze", json=payload, headers=headers)
+        second = client.post("/api/analyze", json=payload, headers=headers)
+        blocked = client.post("/api/analyze", json=payload, headers=headers)
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(len(first.headers["x-request-id"]), 32)
+        self.assertNotEqual(first.headers["x-request-id"], second.headers["x-request-id"])
+        self.assertEqual(blocked.status_code, 429)
+        self.assertGreaterEqual(int(blocked.headers["retry-after"]), 1)
+        self.assertEqual(
+            blocked.headers["access-control-allow-origin"], "http://localhost:3000"
+        )
+        self.assertEqual(len(blocked.headers["x-request-id"]), 32)
+
     def test_player_profile_endpoint_uses_steamid_and_map_filter(self):
         match = quality_ready_match(match_id="profile-api-test")
         self.client.app.state.runtime.add_match(match)
@@ -1835,6 +1866,31 @@ class CS2CoachApiTests(unittest.TestCase):
             "http://localhost:3000",
         )
         self.assertEqual(len(executor.calls), 1)
+
+    def test_queued_demo_job_can_be_cancelled_idempotently(self):
+        runtime = CS2CoachRuntime.create()
+        executor = DeferredExecutor()
+        jobs = DemoJobManager(runtime, executor=executor, max_pending_jobs=1)
+        with tempfile.TemporaryDirectory() as workspace:
+            source = Path(workspace) / "queued.dem"
+            source.write_bytes(b"PBDEMS2\x00queued")
+            queued = jobs.submit(
+                path=source,
+                filename="queued.dem",
+                player_name="Learner",
+                question="分析",
+            )
+            client = TestClient(create_app(runtime, jobs))
+
+            cancelled = client.delete(f"/api/demo-jobs/{queued.job_id}")
+            repeated = client.delete(f"/api/demo-jobs/{queued.job_id}")
+
+            self.assertFalse(source.exists())
+
+        self.assertEqual(cancelled.status_code, 200)
+        self.assertEqual(cancelled.json()["status"], "cancelled")
+        self.assertEqual(repeated.status_code, 200)
+        self.assertEqual(jobs.pending_count(), 0)
 
     def test_demo_job_parses_and_deletes_temporary_file(self):
         runtime = CS2CoachRuntime.create()

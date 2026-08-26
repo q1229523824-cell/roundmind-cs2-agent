@@ -50,6 +50,8 @@ render.yaml           Render Blueprint
 - 可选 PostgreSQL 持久化：通过 SQLAlchemy Repository 保存完整比赛对象，Alembic 管理表结构迁移；
 - Demo 存储可在本地目录与 S3/Cloudflare R2 间切换，任务只传递随机对象键，解析后自动删除；
 - 可选 Redis + Celery 分布式任务：API 只投递 job_id，独立 Worker 解析大 Demo 并共享任务进度；
+- 单实例低成本限流在 multipart 解析前保护上传与 Agent 重接口；每个响应携带请求编号并输出结构化访问日志；
+- 用户可取消排队、读取名单或解析中的 Demo 任务，任务状态和临时对象均按幂等语义收敛；
 - 可选邮箱登录与 JWT 鉴权：Argon2 保存密码，比赛、任务、画像和对话按用户 UUID 隔离；
 - 可选 pgvector 混合 RAG：地图过滤 + 向量召回 + 阵营/点位/主题重排，默认仍可完全离线；
 - 基于完整交火生成武器分布、步枪/主狙/混合角色画像，并按武器、阵营、点位和距离拆解被先手伤害后的转化差距；
@@ -68,6 +70,7 @@ FastAPI。数据库配置、迁移和回退方式见 `docs/postgresql-persistenc
 Redis/Celery 的进程职责、配置和 Worker 命令见 `docs/distributed-jobs.md`。
 登录开关、API 与所有权边界见 `docs/auth-and-ownership.md`。
 向量生成边界、索引命令和评测方式见 `docs/pgvector-rag.md`。
+公开服务的限流、请求追踪和任务取消边界见 `docs/request-controls.md`。
 
 访问：
 

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+from time import perf_counter
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from uuid import uuid4
 
 from fastapi import (
     Depends,
@@ -41,6 +44,7 @@ from chapter07_cs2_coach.demo_jobs import (
 )
 from chapter07_cs2_coach.distributed_jobs import distributed_manager_from_environment
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
+from chapter07_cs2_coach.request_controls import InMemoryRateLimiter, client_identifier
 from chapter07_cs2_coach.database import MatchOwnershipConflictError
 from chapter07_cs2_coach.auth import (
     AuthConfigurationError,
@@ -60,6 +64,7 @@ MAX_DEMO_MB = 500
 MAX_DEMO_BYTES = MAX_DEMO_MB * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 DEFAULT_QUESTION = "请综合分析这场比赛，找出最值得优先改进的问题。"
+HTTP_LOGGER = logging.getLogger("uvicorn.error")
 
 
 def _bounded_positive_int(name: str, default: int, maximum: int) -> int:
@@ -84,6 +89,24 @@ def _cors_origins() -> list[str]:
     ]
 
 
+def _enabled(name: str, default: bool = False) -> bool:
+    return os.getenv(name, str(default).lower()).strip().lower() == "true"
+
+
+def _rate_policy(
+    path: str, method: str, settings: dict[str, int]
+) -> tuple[str, int, int] | None:
+    if method != "POST":
+        return None
+    if path == "/api/demo-jobs":
+        return "demo-upload", settings["uploads_per_hour"], 3600
+    if path in {"/api/analyze", "/api/coach/chat"}:
+        return "heavy-agent", settings["heavy_per_minute"], 60
+    if path in {"/api/auth/login", "/api/auth/register"}:
+        return "auth", settings["auth_per_15m"], 900
+    return None
+
+
 def create_app(
     runtime: CS2CoachRuntime | None = None,
     demo_jobs: DemoJobManager | None = None,
@@ -97,6 +120,21 @@ def create_app(
     )
     app.state.runtime = runtime
     app.state.auth = auth_service or AuthService.from_environment()
+    app.state.rate_limiter = InMemoryRateLimiter(
+        enabled=_enabled("ROUNDMIND_RATE_LIMIT_ENABLED")
+    )
+    app.state.rate_limits = {
+        "uploads_per_hour": _bounded_positive_int(
+            "ROUNDMIND_UPLOADS_PER_HOUR", 6, 1000
+        ),
+        "heavy_per_minute": _bounded_positive_int(
+            "ROUNDMIND_HEAVY_REQUESTS_PER_MINUTE", 30, 1000
+        ),
+        "auth_per_15m": _bounded_positive_int(
+            "ROUNDMIND_AUTH_ATTEMPTS_PER_15M", 10, 1000
+        ),
+    }
+    app.state.trust_proxy_headers = _enabled("ROUNDMIND_TRUST_PROXY_HEADERS")
     if demo_jobs is not None:
         app.state.demo_jobs = demo_jobs
     elif os.getenv("ROUNDMIND_JOB_BACKEND", "local").strip().lower() == "celery":
@@ -109,26 +147,66 @@ def create_app(
             ),
             max_workers=_bounded_positive_int("ROUNDMIND_DEMO_WORKERS", 1, 8),
         )
+
     @app.middleware("http")
-    async def reject_demo_upload_when_full(request: Request, call_next):
-        # 中间件在 multipart 解析前运行，避免队列已满时仍把大文件落到临时磁盘。
-        if request.method == "POST" and request.url.path == "/api/demo-jobs":
-            try:
-                app.state.demo_jobs.ensure_capacity()
-            except DemoQueueFullError as error:
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": str(error)},
-                    headers={"Retry-After": "30"},
+    async def guard_and_trace_requests(request: Request, call_next):
+        # 在 multipart 解析前限流和检查容量，避免超载时仍把大文件落到临时磁盘。
+        request_id = uuid4().hex
+        started = perf_counter()
+        response = None
+        try:
+            if request.method == "POST" and request.url.path == "/api/demo-jobs":
+                try:
+                    app.state.demo_jobs.ensure_capacity()
+                except DemoQueueFullError as error:
+                    response = JSONResponse(
+                        status_code=429,
+                        content={"detail": str(error)},
+                        headers={"Retry-After": "30"},
+                    )
+            policy = _rate_policy(
+                request.url.path, request.method, app.state.rate_limits
+            )
+            if response is None and policy is not None:
+                bucket, limit, window = policy
+                client = client_identifier(
+                    request,
+                    trust_proxy_headers=app.state.trust_proxy_headers,
                 )
-        return await call_next(request)
+                retry_after = app.state.rate_limiter.check(
+                    f"{bucket}:{client}", limit=limit, window_seconds=window
+                )
+                if retry_after is not None:
+                    response = JSONResponse(
+                        status_code=429,
+                        content={"detail": "请求过于频繁，请稍后重试。"},
+                        headers={"Retry-After": str(retry_after)},
+                    )
+            if response is None:
+                response = await call_next(request)
+            response.headers["X-Request-ID"] = request_id
+            return response
+        finally:
+            HTTP_LOGGER.info(
+                json.dumps(
+                    {
+                        "event": "http_request",
+                        "request_id": request_id,
+                        "method": request.method,
+                        "path": request.url.path,
+                        "status": response.status_code if response is not None else 500,
+                        "duration_ms": round((perf_counter() - started) * 1000, 2),
+                    },
+                    ensure_ascii=False,
+                )
+            )
 
     # 后添加的 CORS 位于准入中间件外层，429 也能被跨域前端正常读取。
     app.add_middleware(
         CORSMiddleware,
         allow_origins=_cors_origins(),
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
     )
     app.mount("/static", StaticFiles(directory=WEB_DIRECTORY), name="static")
@@ -316,6 +394,21 @@ def create_app(
             return app.state.demo_jobs.get(job_id, identity.id if identity else None)
         except KeyError as error:
             raise HTTPException(status_code=404, detail="Demo 解析任务不存在。") from error
+
+    @app.delete(
+        "/api/demo-jobs/{job_id}",
+        response_model=DemoJobResponse,
+        tags=["demos"],
+    )
+    def cancel_demo_job(
+        job_id: str, identity: UserResponse | None = Depends(current_identity)
+    ) -> DemoJobResponse:
+        try:
+            return app.state.demo_jobs.cancel(job_id, identity.id if identity else None)
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail="Demo 解析任务不存在。") from error
+        except DemoJobStateError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.post(
         "/api/demo-jobs/{job_id}/player",

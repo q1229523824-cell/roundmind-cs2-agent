@@ -32,7 +32,8 @@ class InMemoryJobStore:
 
     def pending_count(self):
         return sum(
-            job.status in {"queued", "discovering", "awaiting_player", "parsing"}
+            job.status
+            in {"queued", "discovering", "awaiting_player", "parsing", "finalizing"}
             for job in self.jobs.values()
         )
 
@@ -155,6 +156,71 @@ class DistributedJobTests(unittest.TestCase):
                 runtime=CS2CoachRuntime.create(),
             )
             self.assertEqual(manager.get(queued.job_id).status, "completed")
+
+    def test_manager_cancels_waiting_job_and_worker_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            object_store = LocalDemoObjectStore(Path(workspace) / "objects")
+            source = Path(workspace) / "upload.dem"
+            source.write_bytes(b"PBDEMS2\x00demo")
+            store = InMemoryJobStore()
+            dispatcher = FakeDispatcher()
+            manager = CeleryDemoJobManager(
+                store=store,
+                object_store=object_store,
+                dispatcher=dispatcher,
+            )
+            queued = manager.submit_upload(
+                path=source,
+                filename="match.dem",
+                question="分析",
+            )
+
+            cancelled = manager.cancel(queued.job_id)
+            discover_demo_job(
+                queued.job_id,
+                store=store,
+                object_store=object_store,
+                parser=TinyParser(),
+            )
+
+            self.assertEqual(cancelled.status, "cancelled")
+            self.assertEqual(manager.get(queued.job_id).status, "cancelled")
+            self.assertFalse(any((Path(workspace) / "objects").rglob("*.dem")))
+
+    def test_worker_failure_does_not_overwrite_concurrent_cancellation(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            object_store = LocalDemoObjectStore(Path(workspace) / "objects")
+            source = Path(workspace) / "upload.dem"
+            source.write_bytes(b"PBDEMS2\x00demo")
+            store = InMemoryJobStore()
+            manager = CeleryDemoJobManager(
+                store=store,
+                object_store=object_store,
+                dispatcher=FakeDispatcher(),
+            )
+            queued = manager.submit_upload(
+                path=source,
+                filename="match.dem",
+                player_name="Learner",
+                player_steamid="1",
+                question="分析",
+            )
+
+            class CancellingParser(TinyParser):
+                def parse(self, path, player_name, player_steamid):
+                    self._assert_demo(path)
+                    manager.cancel(queued.job_id)
+                    raise RuntimeError("parser stopped after cancellation")
+
+            parse_demo_job(
+                queued.job_id,
+                store=store,
+                object_store=object_store,
+                parser=CancellingParser(),
+                runtime=CS2CoachRuntime.create(),
+            )
+
+            self.assertEqual(manager.get(queued.job_id).status, "cancelled")
 
 
 if __name__ == "__main__":

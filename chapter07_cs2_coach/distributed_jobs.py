@@ -108,7 +108,13 @@ class RedisDemoJobStore:
             if not payload:
                 continue
             status = json.loads(payload).get("status")
-            if status in {"queued", "discovering", "awaiting_player", "parsing"}:
+            if status in {
+                "queued",
+                "discovering",
+                "awaiting_player",
+                "parsing",
+                "finalizing",
+            }:
                 count += 1
         return count
 
@@ -224,6 +230,22 @@ class CeleryDemoJobManager:
         self.dispatcher.send(PARSE_TASK, job.job_id)
         return job.response()
 
+    def cancel(self, job_id: str, owner_id: str | None = None) -> DemoJobResponse:
+        job = self.store.get(job_id)
+        if job is None or (owner_id is not None and job.owner_id != owner_id):
+            raise KeyError(job_id)
+        if job.status == "cancelled":
+            return job.response()
+        if job.status == "finalizing":
+            raise DemoJobStateError("Demo 已进入结果保存阶段，不能取消。")
+        if job.status in {"completed", "failed"}:
+            raise DemoJobStateError("已结束的 Demo 任务不能取消。")
+        job.status, job.progress = "cancelled", 100
+        job.error = "Demo 解析已取消。"
+        self.store.save(job)
+        self.object_store.delete(job.object_key)
+        return job.response()
+
 
 def discover_demo_job(
     job_id: str,
@@ -238,13 +260,16 @@ def discover_demo_job(
     job = store.get(job_id)
     if job is None:
         return
-    if job.status in {"awaiting_player", "completed", "failed"}:
+    if job.status in {"awaiting_player", "completed", "failed", "cancelled"}:
         return
     job.status, job.progress = "discovering", 25
     store.save(job)
     try:
         with object_store.materialize(job.object_key) as path:
             options = parser.list_player_options(path)
+        latest = store.get(job_id)
+        if latest is None or latest.status == "cancelled":
+            return
         job.available_players = [item.name for item in options]
         job.player_options = options
         job.status, job.progress = "awaiting_player", 45
@@ -272,7 +297,7 @@ def parse_demo_job(
     job = store.get(job_id)
     if job is None:
         return
-    if job.status in {"completed", "failed"}:
+    if job.status in {"completed", "failed", "cancelled"}:
         return
     job.status, job.progress = "parsing", 55
     store.save(job)
@@ -281,9 +306,12 @@ def parse_demo_job(
             raise DemoParseError("尚未选择要复盘的玩家。")
         with object_store.materialize(job.object_key) as path:
             match = parser.parse(path, job.player_name, job.player_steamid)
-        runtime.add_match(match, job.owner_id)
-        job.progress = 80
+        latest = store.get(job_id)
+        if latest is None or latest.status == "cancelled":
+            return
+        job.status, job.progress = "finalizing", 80
         store.save(job)
+        runtime.add_match(match, job.owner_id)
         job.match = match
         job.analysis = runtime.analyze(
             match_id=match.match_id, question=job.question, owner_id=job.owner_id
@@ -292,19 +320,27 @@ def parse_demo_job(
         store.save(job)
     except DemoParseError as error:
         job.error, job.status, job.progress = str(error), "failed", 100
-        store.save(job)
+        if not _job_was_cancelled(store, job.job_id):
+            store.save(job)
     except Exception:
         job.error = "服务器解析 Demo 时发生未知错误，请换一个文件重试。"
         job.status, job.progress = "failed", 100
-        store.save(job)
+        if not _job_was_cancelled(store, job.job_id):
+            store.save(job)
     finally:
         object_store.delete(job.object_key)
 
 
 def _fail_distributed_job(job, message, store, object_store) -> None:
-    job.error, job.status, job.progress = message, "failed", 100
-    store.save(job)
+    if not _job_was_cancelled(store, job.job_id):
+        job.error, job.status, job.progress = message, "failed", 100
+        store.save(job)
     object_store.delete(job.object_key)
+
+
+def _job_was_cancelled(store: DemoJobStoreProtocol, job_id: str) -> bool:
+    latest = store.get(job_id)
+    return latest is not None and latest.status == "cancelled"
 
 
 def redis_job_store_from_environment() -> RedisDemoJobStore:

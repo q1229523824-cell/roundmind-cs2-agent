@@ -459,7 +459,14 @@ class DemoJobResponse(BaseModel):
 
     job_id: str
     status: Literal[
-        "queued", "discovering", "awaiting_player", "parsing", "completed", "failed"
+        "queued",
+        "discovering",
+        "awaiting_player",
+        "parsing",
+        "finalizing",
+        "completed",
+        "failed",
+        "cancelled",
     ]
     progress: int = Field(ge=0, le=100)
     filename: str

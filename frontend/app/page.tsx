@@ -115,7 +115,7 @@ type AgentAnalysis = {
 
 type DemoJob = {
   job_id: string;
-  status: "queued" | "discovering" | "awaiting_player" | "parsing" | "completed" | "failed";
+  status: "queued" | "discovering" | "awaiting_player" | "parsing" | "finalizing" | "completed" | "failed" | "cancelled";
   progress: number;
   player_name: string | null;
   player_steamid: string | null;
@@ -373,6 +373,7 @@ export default function Home() {
   const [annotationError, setAnnotationError] = useState("");
   const [calibration, setCalibration] = useState<CalibrationSummary>({ total: 0, agreements: 0, agreement_rate: null });
   const coachAbortRef = useRef<AbortController | null>(null);
+  const demoPollAbortRef = useRef<AbortController | null>(null);
   const coachThreadEndRef = useRef<HTMLDivElement | null>(null);
   const tools = useMemo(() => chooseTools(query), [query]);
   const stats = useMemo(() => summarize(match), [match]);
@@ -547,6 +548,7 @@ export default function Home() {
         request.onerror = () => reject(new Error("无法连接 Demo 解析服务"));
         request.send(form);
       });
+      setPendingDemoJobId(job.job_id);
       const current = await pollDemoJob(job, true);
       setPendingDemoJobId(current.job_id);
       setAvailablePlayers(current.player_options?.length
@@ -555,6 +557,7 @@ export default function Home() {
       setUploadProgress(current.progress);
       setUploadStatus(`已找到 ${current.available_players.length} 名玩家，请选择复盘对象`);
     } catch (reason) {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
       setUploadProgress(null);
       setUploadStatus("");
       setError(reason instanceof Error ? reason.message : "Demo 处理失败");
@@ -562,21 +565,48 @@ export default function Home() {
   }
 
   async function pollDemoJob(job: DemoJob, stopAtPlayerSelection = false) {
+    demoPollAbortRef.current?.abort();
+    const controller = new AbortController();
+    demoPollAbortRef.current = controller;
     let current = job;
-    for (let attempt = 0; attempt < 180 && current.status !== "completed"; attempt += 1) {
-      if (current.status === "failed") throw new Error(current.error ?? "Demo 解析失败");
-      if (current.status === "awaiting_player" && stopAtPlayerSelection) return current;
-      setUploadProgress(Math.max(35, current.progress));
-      setUploadStatus(current.status === "discovering"
-        ? "正在读取 Demo 中的玩家名单…"
-        : "服务器正在解析回合与玩家事件…");
-      await new Promise((resolve) => window.setTimeout(resolve, 1000));
-      const response = await fetch(`${apiBase}/api/demo-jobs/${current.job_id}`);
-      if (!response.ok) throw new Error("无法查询 Demo 解析进度");
-      current = await response.json();
+    try {
+      for (let attempt = 0; attempt < 180 && current.status !== "completed"; attempt += 1) {
+        if (current.status === "failed") throw new Error(current.error ?? "Demo 解析失败");
+        if (current.status === "cancelled") throw new DOMException("Demo 解析已取消", "AbortError");
+        if (current.status === "awaiting_player" && stopAtPlayerSelection) return current;
+        setUploadProgress(Math.max(35, current.progress));
+        setUploadStatus(current.status === "discovering"
+          ? "正在读取 Demo 中的玩家名单…"
+          : "服务器正在解析回合与玩家事件…");
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const response = await fetch(`${apiBase}/api/demo-jobs/${current.job_id}`, { signal: controller.signal });
+        if (!response.ok) throw new Error("无法查询 Demo 解析进度");
+        current = await response.json();
+      }
+      if (current.status !== "completed" || !current.match) throw new Error("Demo 解析超时，请稍后重试");
+      return current;
+    } finally {
+      if (demoPollAbortRef.current === controller) demoPollAbortRef.current = null;
     }
-    if (current.status !== "completed" || !current.match) throw new Error("Demo 解析超时，请稍后重试");
-    return current;
+  }
+
+  async function cancelDemoJob() {
+    if (!apiBase || !pendingDemoJobId) return;
+    const jobId = pendingDemoJobId;
+    demoPollAbortRef.current?.abort();
+    try {
+      const response = await fetch(`${apiBase}/api/demo-jobs/${jobId}`, { method: "DELETE" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail ?? "无法取消 Demo 任务");
+      setUploadStatus("Demo 解析已取消，临时文件已清理");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法取消 Demo 任务");
+    } finally {
+      setPendingDemoJobId("");
+      setAvailablePlayers([]);
+      setSelectedPlayer("");
+      setUploadProgress(null);
+    }
   }
 
   async function selectDemoPlayer(playerSteamid: string) {
@@ -608,6 +638,7 @@ export default function Home() {
       setUploadStatus("Demo 解析完成，临时文件已删除");
       setPendingDemoJobId("");
     } catch (reason) {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
       setUploadProgress(null);
       setUploadStatus("");
       setError(reason instanceof Error ? reason.message : "Demo 处理失败");
@@ -758,7 +789,7 @@ export default function Home() {
         </select>
         <label className="upload" htmlFor="match-file">＋<strong>上传 CS2 Demo 或 JSON</strong><small>.dem 最大 {MAX_DEMO_MB} MB · 解析后自动删除</small><input id="match-file" type="file" accept=".dem,.json,application/json" onChange={(event) => upload(event.target.files?.[0])}/></label>
         {uploadProgress !== null && <div className="progress" aria-label={`处理进度 ${uploadProgress}%`}><i style={{ width: `${uploadProgress}%` }}/></div>}
-        {uploadStatus && <p className="uploadStatus">{uploadStatus}</p>}
+        {(uploadStatus || pendingDemoJobId) && <div className="uploadMeta">{uploadStatus && <p className="uploadStatus">{uploadStatus}</p>}{pendingDemoJobId && <button onClick={cancelDemoJob}>取消任务</button>}</div>}
         {error && <p className="error">{error}</p>}
         <label htmlFor="question">你最想弄清什么？</label>
         <textarea id="question" rows={5} value={question} onChange={(event) => setQuestion(event.target.value)}/>
