@@ -80,14 +80,18 @@ def _bounded_positive_int(name: str, default: int, maximum: int) -> int:
 
 
 def _cors_origins() -> list[str]:
-    configured = os.getenv("ROUNDMIND_CORS_ORIGINS", "")
-    if configured.strip():
-        return [item.strip().rstrip("/") for item in configured.split(",") if item.strip()]
-    return [
+    first_party_origins = {
+        "https://roundmind-cs2-agent.yangmiaomiao37.chatgpt.site",
         "https://roundmind-cs2-coach.kclespark.chatgpt.site",
         "http://127.0.0.1:3000",
         "http://localhost:3000",
-    ]
+    }
+    configured = os.getenv("ROUNDMIND_CORS_ORIGINS", "")
+    if configured.strip():
+        first_party_origins.update(
+            item.strip().rstrip("/") for item in configured.split(",") if item.strip()
+        )
+    return sorted(first_party_origins)
 
 
 def _enabled(name: str, default: bool = False) -> bool:

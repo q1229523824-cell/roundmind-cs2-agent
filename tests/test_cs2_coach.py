@@ -1626,6 +1626,19 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(ready.status_code, 200)
         self.assertEqual(ready.json()["status"], "ready")
 
+        preflight = self.client.options(
+            "/api/system/job-metrics",
+            headers={
+                "Origin": "https://roundmind-cs2-agent.yangmiaomiao37.chatgpt.site",
+                "Access-Control-Request-Method": "GET",
+            },
+        )
+        self.assertEqual(preflight.status_code, 200)
+        self.assertEqual(
+            preflight.headers["access-control-allow-origin"],
+            "https://roundmind-cs2-agent.yangmiaomiao37.chatgpt.site",
+        )
+
     def test_ready_reports_database_failure_without_leaking_details(self):
         runtime = CS2CoachRuntime(repository=UnavailableRepository())
         response = TestClient(create_app(runtime)).get("/ready")
