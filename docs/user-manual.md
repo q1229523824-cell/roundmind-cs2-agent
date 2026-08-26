@@ -6,7 +6,7 @@ RoundMind 是一款 CS2 Demo 复盘工具。它会读取 `.dem` 比赛文件，�
 
 ## 1. 三分钟快速开始
 
-1. 从官方发布页下载 `RoundMind-Local-Parser-win-x64.zip`：  
+1. 从官方发布页下载 `RoundMind-Local-Parser-win-x64.zip`：
    <https://github.com/q1229523824-cell/roundmind-cs2-agent/releases/tag/v0.1.0>
 2. 右键 ZIP，选择“全部解压”。不要只把 EXE 单独拖出来。
 3. 进入解压后的文件夹，双击 `RoundMind-Local-Parser.exe`。
@@ -247,5 +247,6 @@ Demo 大小：
 
 ---
 
-项目主页：<https://github.com/q1229523824-cell/roundmind-cs2-agent>  
+项目主页：<https://github.com/q1229523824-cell/roundmind-cs2-agent>
+
 版本下载：<https://github.com/q1229523824-cell/roundmind-cs2-agent/releases/tag/v0.1.0>
