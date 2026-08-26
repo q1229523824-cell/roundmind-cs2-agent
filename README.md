@@ -103,6 +103,10 @@ RoundMind 官方网页来源，其他网站不能借此调用本地解析接口�
 会同时发布到 GitHub Releases。用户解压后双击 `RoundMind-Local-Parser.exe` 即可，不需要安装
 Python。当前程序尚未购买代码签名证书，因此 Windows SmartScreen 可能显示“未知发布者”。
 
+给普通玩家转发时，可同时发送 [中文用户使用手册](docs/user-manual.md) 或
+[排版版 PDF](output/pdf/RoundMind-CS2-Agent-用户使用手册-v0.1.0.pdf)。手册包含下载、解压、
+本地复盘、结果解读、隐私说明和常见问题排查。
+
 开发者也可以在 Windows 本地构建：
 
 ```powershell
