@@ -1,15 +1,23 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from chapter07_cs2_coach.local_server import (
     PUBLIC_WEB_URL,
     browser_target,
+    configure_console_output,
     configure_local_environment,
 )
 
 
 class LocalServerTests(unittest.TestCase):
+    def test_console_output_replaces_unsupported_characters(self):
+        stream = Mock()
+
+        configure_console_output((stream,))
+
+        stream.reconfigure.assert_called_once_with(errors="replace")
+
     def test_public_browser_target_requests_local_processing(self):
         target = browser_target("http://127.0.0.1:8765", False)
 

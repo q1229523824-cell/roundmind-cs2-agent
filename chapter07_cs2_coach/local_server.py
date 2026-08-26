@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import sys
 import threading
 import webbrowser
 from pathlib import Path
@@ -14,6 +15,15 @@ from chapter07_cs2_coach.api import create_app
 
 
 PUBLIC_WEB_URL = "https://roundmind-cs2-agent.yangmiaomiao37.chatgpt.site"
+
+
+def configure_console_output(streams: tuple[object, ...] | None = None) -> None:
+    """Prevent localized help text from crashing on non-Chinese Windows consoles."""
+
+    for stream in streams or (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(errors="replace")
 
 
 def configure_local_environment() -> None:
@@ -59,6 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    configure_console_output()
     args = build_parser().parse_args()
     if not 1024 <= args.port <= 65535:
         raise SystemExit("端口必须在 1024 到 65535 之间。")
