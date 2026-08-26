@@ -232,6 +232,13 @@ class CS2DemoMatchParser:
 
     def list_player_options(self, path: Path) -> list[DemoPlayerOption]:
         """读取昵称与 SteamID，使用稳定 ID 区分同名玩家。"""
+        _, options = self.inspect_metadata(path)
+        return options
+
+    def inspect_metadata(
+        self, path: Path
+    ) -> tuple[dict[str, Any], list[DemoPlayerOption]]:
+        """快速读取 Demo 头和玩家，不解析逐回合事件。"""
         try:
             parser = self._parser_factory(str(path))
             header = dict(parser.parse_header())
@@ -257,7 +264,10 @@ class CS2DemoMatchParser:
             ) from error
         if not options:
             raise DemoParseError("Demo 中没有读取到玩家名单。")
-        return [DemoPlayerOption(name=name, steamid=steamid) for name, steamid in options[:20]]
+        players = [
+            DemoPlayerOption(name=name, steamid=steamid) for name, steamid in options[:20]
+        ]
+        return header, players
 
     def parse(
         self,

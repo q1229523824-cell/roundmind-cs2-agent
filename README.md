@@ -197,6 +197,11 @@ RoundMind 不让模型计算比分、K/D 或 ADR。事实由程序计算，Agent
 武器分类、角色阈值和被先手伤害切片见 `docs/weapon-role-profile.md`。
 本地多 Demo 可使用 `python -m chapter07_cs2_coach.profile_cli` 批量生成画像，重复比赛会按 `match_id` 去重。
 
+收集大量 Demo 后，可先运行 `python -m chapter07_cs2_coach.demo_catalog_cli` 生成 JSON/CSV 清单。整理器会递归
+扫描、用 SHA-256 识别内容重复文件，并快速读取地图、玩家、SteamID、Demo 格式和 CS2 `patch_version`；
+它不会把文件修改时间伪装成比赛日期，也不会移动或删除原文件。使用方法与字段边界见
+`docs/demo-catalog.md`。
+
 在把新 Demo 纳入画像前，建议先运行 `python -m chapter07_cs2_coach.quality_cli`。质量门禁会检查击杀/死亡
 交火覆盖率、死亡快照覆盖率、重复事件、未知点位、关键上下文缺失和 SteamID，并输出 `pass/review/fail`。
 `fail` 的比赛不应更新长期画像，避免把解析器缺失误判为玩家习惯。详见 `docs/data-quality-gate.md`。
