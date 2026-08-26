@@ -28,7 +28,7 @@ from reportlab.platypus import (
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "docs" / "user-manual.md"
-OUTPUT = ROOT / "output" / "pdf" / "RoundMind-CS2-Agent-用户使用手册-v0.1.0.pdf"
+OUTPUT = ROOT / "output" / "pdf" / "RoundMind-CS2-Agent-用户使用手册-v0.2.0.pdf"
 
 PAGE_W, PAGE_H = A4
 INK = colors.HexColor("#161A13")
@@ -251,7 +251,7 @@ def cover(styles: dict[str, ParagraphStyle]) -> list:
             ),
             Spacer(1, 34 * mm),
             Paragraph(
-                "适用版本 v0.1.0<br/>Windows 10/11 x64<br/>2026-08-26",
+                "适用版本 v0.2.0<br/>Windows 10/11 x64<br/>2026-08-26",
                 styles["cover_meta"],
             ),
             PageBreak(),

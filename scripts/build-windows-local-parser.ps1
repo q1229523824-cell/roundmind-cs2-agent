@@ -29,6 +29,7 @@ if ($buildExitCode -ne 0) {
 }
 
 Copy-Item -LiteralPath (Join-Path $repository "packaging\README-WINDOWS.txt") -Destination $bundle -Force
+Copy-Item -LiteralPath (Join-Path $repository "packaging\Start-RoundMind-With-DeepSeek.cmd") -Destination $bundle -Force
 
 Write-Output "[2/3] Smoke-testing packaged executable..."
 $smokeOutput = @(& (Join-Path $bundle "RoundMind-Local-Parser.exe") --help 2>&1)

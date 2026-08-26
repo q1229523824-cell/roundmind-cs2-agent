@@ -6,6 +6,7 @@ from chapter07_cs2_coach.local_server import (
     PUBLIC_WEB_URL,
     browser_target,
     configure_console_output,
+    configure_deepseek_for_session,
     configure_local_environment,
 )
 
@@ -49,6 +50,28 @@ class LocalServerTests(unittest.TestCase):
             self.assertEqual(os.environ["ROUNDMIND_OBJECT_STORAGE"], "local")
             self.assertEqual(os.environ["ROUNDMIND_KNOWLEDGE_BACKEND"], "local")
             self.assertEqual(os.environ["ROUNDMIND_AUTH_REQUIRED"], "false")
+
+    def test_deepseek_opt_in_uses_user_key_for_current_process(self):
+        with patch.dict(os.environ, {}, clear=True):
+            configure_deepseek_for_session(
+                input_fn=lambda _prompt: "YES",
+                secret_fn=lambda _prompt: "friend-owned-key",
+            )
+
+            self.assertEqual(os.environ["DEEPSEEK_API_KEY"], "friend-owned-key")
+            self.assertEqual(os.environ["DEEPSEEK_MODEL"], "deepseek-chat")
+            self.assertEqual(os.environ["DEEPSEEK_BASE_URL"], "https://api.deepseek.com")
+            self.assertEqual(os.environ["ROUNDMIND_ENABLE_LLM_COACH"], "true")
+
+    def test_deepseek_opt_in_requires_explicit_consent(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(SystemExit, "未发送任何数据"):
+                configure_deepseek_for_session(
+                    input_fn=lambda _prompt: "no",
+                    secret_fn=lambda _prompt: self.fail("拒绝后不应读取 API Key"),
+                )
+
+            self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
 
 
 if __name__ == "__main__":

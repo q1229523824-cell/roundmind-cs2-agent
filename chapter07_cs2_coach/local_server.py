@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import os
 import sys
 import threading
@@ -37,6 +38,29 @@ def configure_local_environment() -> None:
     os.environ.pop("DATABASE_URL", None)
 
 
+def configure_deepseek_for_session(
+    *,
+    input_fn=input,
+    secret_fn=getpass.getpass,
+) -> None:
+    """Opt in to DeepSeek with a user-owned key kept only in this process."""
+
+    print("\n可选 DeepSeek 教练模式")
+    print("将发送：匿名化教练上下文、当前问题和最近最多 12 条对话。")
+    print("不会发送：原始 Demo、文件路径、SteamID 或玩家昵称。")
+    consent = input_fn("如果同意由本机调用 DeepSeek，请输入 YES：").strip()
+    if consent != "YES":
+        raise SystemExit("已取消 DeepSeek 教练模式，未发送任何数据。")
+    api_key = secret_fn("请输入你自己的 DeepSeek API Key（输入不会显示）：").strip()
+    if not api_key:
+        raise SystemExit("API Key 不能为空。")
+    os.environ["DEEPSEEK_API_KEY"] = api_key
+    os.environ["DEEPSEEK_MODEL"] = "deepseek-chat"
+    os.environ["DEEPSEEK_BASE_URL"] = "https://api.deepseek.com"
+    os.environ["ROUNDMIND_ENABLE_LLM_COACH"] = "true"
+    print("DeepSeek 教练已为本次运行启用；关闭窗口后密钥随进程失效。\n")
+
+
 def browser_target(local_url: str, use_local_ui: bool) -> str:
     return (
         local_url
@@ -65,6 +89,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="只检查 Demo 兼容性并读取玩家数量，不启动服务",
     )
+    parser.add_argument(
+        "--enable-deepseek",
+        action="store_true",
+        help="使用当前用户自己的 DeepSeek API Key 启用大模型教练",
+    )
     return parser
 
 
@@ -81,6 +110,8 @@ def main() -> None:
         options = CS2DemoMatchParser().list_player_options(args.check_demo.resolve())
         print(f"Demo 兼容性检查通过：读取到 {len(options)} 名玩家。")
         return
+    if args.enable_deepseek:
+        configure_deepseek_for_session()
     browser_url = browser_target(url, args.local_ui)
     if not args.no_browser:
         timer = threading.Timer(1.0, webbrowser.open, args=(browser_url,))

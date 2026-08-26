@@ -1,13 +1,13 @@
 # RoundMind CS2 Agent 用户使用手册
 
-> 适用版本：v0.1.0 · Windows 10/11 x64 · 更新日期：2026-08-26
+> 适用版本：v0.2.0 · Windows 10/11 x64 · 更新日期：2026-08-26
 
 RoundMind 是一款 CS2 Demo 复盘工具。它会读取 `.dem` 比赛文件，自动找到本场玩家，生成数据摘要、关键回合证据、接战风险和训练建议。普通用户不需要安装 Python，也不需要 API Key。
 
 ## 1. 三分钟快速开始
 
 1. 从官方发布页下载 `RoundMind-Local-Parser-win-x64.zip`：
-   <https://github.com/q1229523824-cell/roundmind-cs2-agent/releases/tag/v0.1.0>
+   <https://github.com/q1229523824-cell/roundmind-cs2-agent/releases/tag/v0.2.0>
 2. 右键 ZIP，选择“全部解压”。不要只把 EXE 单独拖出来。
 3. 进入解压后的文件夹，双击 `RoundMind-Local-Parser.exe`。
 4. 保持黑色程序窗口打开。浏览器会自动打开 RoundMind 网页并切换到“本地模式”。
@@ -146,7 +146,14 @@ Demo 解析完成，临时文件已删除。
 
 Demo 解析、指标计算、风险评分和基础建议都能离线运行。程序不是在本地部署了一个大模型，而是用确定性解析器、工作流、规则和知识库生成可验证结论。
 
-如果项目所有者以后显式启用 DeepSeek，大模型只负责把结构化证据组织成更自然、更个性化的教练表达。原始 Demo 不会直接发送给大模型，但经过裁剪和匿名化的分析上下文可能发送到模型服务。普通体验者无需设置 API Key。
+如需更自然、更个性化的追问，可让每位用户使用自己的 DeepSeek API Key：
+
+1. 双击发布包中的 `Start-RoundMind-With-DeepSeek.cmd`；
+2. 阅读数据说明，输入大写 `YES` 表示同意；
+3. 输入自己的 DeepSeek API Key，输入内容不会显示；
+4. 浏览器打开后照常上传 Demo、选择玩家并追问。
+
+密钥只保存在本次本地程序进程中，关闭黑色窗口后失效，不会写入网页、GitHub、配置文件或作者服务器。调用 DeepSeek 时，只发送匿名化教练上下文、当前问题和最近最多 12 条对话；不会发送原始 Demo、文件路径、SteamID 或玩家昵称。产生的 API 费用由密钥所有者承担。
 
 ## 7. 常见问题排查
 
@@ -219,7 +226,7 @@ Demo 解析、指标计算、风险评分和基础建议都能离线运行。程
 为了快速定位问题，请提供：
 
 ```text
-RoundMind 版本：v0.1.0
+RoundMind 版本：v0.2.0
 Windows 版本：
 浏览器：
 Demo 大小：
@@ -243,10 +250,11 @@ Demo 大小：
 | 检查 Demo | 使用 `--check-demo "文件路径"` |
 | 文件上限 | `.dem` 最大 500 MB |
 | 是否需要 API Key | 默认不需要 |
+| 使用自己的大模型 | 双击 `Start-RoundMind-With-DeepSeek.cmd` |
 | Demo 是否上传云端 | 本地模式不会 |
 
 ---
 
 项目主页：<https://github.com/q1229523824-cell/roundmind-cs2-agent>
 
-版本下载：<https://github.com/q1229523824-cell/roundmind-cs2-agent/releases/tag/v0.1.0>
+版本下载：<https://github.com/q1229523824-cell/roundmind-cs2-agent/releases/tag/v0.2.0>

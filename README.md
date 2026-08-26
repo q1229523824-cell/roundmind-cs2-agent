@@ -104,8 +104,12 @@ RoundMind 官方网页来源，其他网站不能借此调用本地解析接口�
 Python。当前程序尚未购买代码签名证书，因此 Windows SmartScreen 可能显示“未知发布者”。
 
 给普通玩家转发时，可同时发送 [中文用户使用手册](docs/user-manual.md) 或
-[排版版 PDF](output/pdf/RoundMind-CS2-Agent-用户使用手册-v0.1.0.pdf)。手册包含下载、解压、
+[排版版 PDF](output/pdf/RoundMind-CS2-Agent-用户使用手册-v0.2.0.pdf)。手册包含下载、解压、
 本地复盘、结果解读、隐私说明和常见问题排查。
+
+普通用户默认使用完全离线的规则教练。希望获得更自然的个性化对话时，可双击发布包里的
+`Start-RoundMind-With-DeepSeek.cmd`，由用户自行输入并承担自己的 DeepSeek API Key。密钥只在
+本次本地进程中生效，不进入公开网页、仓库或配置文件；调用前会明确显示数据边界并要求同意。
 
 开发者也可以在 Windows 本地构建：
 
