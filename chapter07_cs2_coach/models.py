@@ -494,6 +494,19 @@ class DemoPlayerSelection(BaseModel):
     )
 
 
+class LocalCatalogAnalysisRequest(BaseModel):
+    """从用户刚授权的本地目录选择一份 Demo。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    player_steamid: str = Field(min_length=1, max_length=32)
+    question: str = Field(
+        default="请综合分析这场比赛，找出最值得优先改进的问题。",
+        min_length=1,
+        max_length=1000,
+    )
+
+
 class DemoPlayerOption(BaseModel):
     """Demo 中可选择的稳定玩家身份。"""
 

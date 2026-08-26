@@ -209,6 +209,41 @@ type LocalBridgeStatus = {
   message: string;
 };
 
+type LocalCatalogPlayer = { name: string; steamid: string };
+
+type LocalCatalogEntry = {
+  entry_id: string;
+  demo_id: string;
+  relative_path: string;
+  file_size_bytes: number;
+  file_modified_at: string;
+  map_name: string | null;
+  server_name: string | null;
+  source: string;
+  source_confidence: "high" | "medium" | "low" | "unknown";
+  demo_type: "server_demo" | "pov_demo" | "unknown";
+  demo_format: string | null;
+  patch_version: string | null;
+  players: LocalCatalogPlayer[];
+  player_count: number;
+  status: "metadata_ready" | "duplicate" | "failed";
+  duplicate_of: string | null;
+  error: string | null;
+};
+
+type LocalDemoCatalog = {
+  session_id: string;
+  root_name: string;
+  stats: {
+    files: number;
+    unique_files: number;
+    duplicates: number;
+    metadata_ready: number;
+    failed: number;
+  };
+  entries: LocalCatalogEntry[];
+};
+
 type CoachChatResponse = {
   mode: "offline" | "llm";
   answer: string;
@@ -465,6 +500,13 @@ export default function Home() {
   const [cloudApiBase, setCloudApiBase] = useState("");
   const [processingMode, setProcessingMode] = useState<"cloud" | "local">("cloud");
   const [localBridge, setLocalBridge] = useState<LocalBridgeStatus | null>(null);
+  const [localCatalog, setLocalCatalog] = useState<LocalDemoCatalog | null>(null);
+  const [catalogPending, setCatalogPending] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogMapFilter, setCatalogMapFilter] = useState("all");
+  const [catalogPatchFilter, setCatalogPatchFilter] = useState("all");
+  const [selectedCatalogEntryId, setSelectedCatalogEntryId] = useState("");
+  const [catalogPlayerSteamid, setCatalogPlayerSteamid] = useState("");
   const [modePending, setModePending] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [uploadStatus, setUploadStatus] = useState("");
@@ -520,6 +562,19 @@ export default function Home() {
   const decisionCards = remoteAnalysis?.decision_cards ?? [];
   const contactDecisionCards = remoteAnalysis?.contact_decision_cards ?? [];
   const knowledgeReferences = remoteAnalysis?.knowledge_references ?? [];
+  const catalogMaps = useMemo(() => Array.from(new Set(
+    (localCatalog?.entries ?? []).map((item) => item.map_name).filter(Boolean) as string[],
+  )).sort(), [localCatalog]);
+  const catalogPatches = useMemo(() => Array.from(new Set(
+    (localCatalog?.entries ?? []).map((item) => item.patch_version).filter(Boolean) as string[],
+  )).sort(), [localCatalog]);
+  const visibleCatalogEntries = useMemo(() => (localCatalog?.entries ?? []).filter((item) =>
+    (catalogMapFilter === "all" || item.map_name === catalogMapFilter)
+    && (catalogPatchFilter === "all" || item.patch_version === catalogPatchFilter)
+  ), [localCatalog, catalogMapFilter, catalogPatchFilter]);
+  const selectedCatalogEntry = localCatalog?.entries.find(
+    (item) => item.entry_id === selectedCatalogEntryId,
+  ) ?? null;
 
   function backendHeaders(json = false): Record<string, string> {
     const headers: Record<string, string> = {};
@@ -546,18 +601,19 @@ export default function Home() {
       });
   }, []);
 
-  async function switchProcessingMode(nextMode: "cloud" | "local") {
+  async function switchProcessingMode(nextMode: "cloud" | "local"): Promise<boolean> {
     if (pendingDemoJobId) {
       setError("请先等待当前 Demo 完成或取消任务，再切换解析方式。");
-      return;
+      return false;
     }
     if (nextMode === "cloud") {
       setProcessingMode("cloud");
       setApiBase(cloudApiBase);
       setLocalBridge(null);
+      setLocalCatalog(null);
       setError("");
       setUploadStatus("已切换到云端解析");
-      return;
+      return true;
     }
     setModePending(true);
     setError("");
@@ -574,12 +630,96 @@ export default function Home() {
       setProcessingMode("local");
       setApiBase(LOCAL_API_BASE);
       setUploadStatus("本地解析器已连接，Demo 不会上传到 Render");
+      return true;
     } catch {
       setLocalBridge(null);
       setError("没有检测到本地解析器。请先在项目目录运行本地启动命令，再点击“重新检测”。");
       setUploadStatus("");
+      return false;
     } finally {
       setModePending(false);
+    }
+  }
+
+  async function scanLocalDemoFolder() {
+    if (processingMode !== "local" || !localBridge) {
+      const connected = await switchProcessingMode("local");
+      if (!connected) return;
+    }
+    setCatalogPending(true);
+    setCatalogError("");
+    setUploadStatus("请在系统窗口中选择 Demo 文件夹…");
+    try {
+      const response = await fetch(`${LOCAL_API_BASE}/api/local-demo-catalog/select-directory`, {
+        method: "POST",
+      });
+      const body = await response.json() as LocalDemoCatalog & { detail?: string };
+      if (!response.ok) throw new Error(body.detail ?? "无法扫描 Demo 文件夹");
+      setLocalCatalog(body);
+      setCatalogMapFilter("all");
+      setCatalogPatchFilter("all");
+      setSelectedCatalogEntryId("");
+      setCatalogPlayerSteamid("");
+      setUploadStatus(`本机扫描完成：${body.stats.unique_files} 个唯一 Demo`);
+      window.setTimeout(() => document.querySelector("#demo-library")?.scrollIntoView({ behavior: "smooth" }), 50);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "无法扫描 Demo 文件夹";
+      if (message.includes("取消")) setUploadStatus("已取消选择文件夹");
+      else setCatalogError(message);
+    } finally {
+      setCatalogPending(false);
+    }
+  }
+
+  function chooseCatalogEntry(entry: LocalCatalogEntry) {
+    if (entry.status !== "metadata_ready") return;
+    setSelectedCatalogEntryId(entry.entry_id);
+    setCatalogPlayerSteamid(entry.players[0]?.steamid ?? "");
+    setCatalogError("");
+  }
+
+  async function analyzeCatalogEntry() {
+    if (!localCatalog || !selectedCatalogEntry || !catalogPlayerSteamid) return;
+    setCatalogPending(true);
+    setCatalogError("");
+    setError("");
+    setUploadProgress(10);
+    setUploadStatus("正在从本地资料库解析所选 Demo…");
+    try {
+      const response = await fetch(
+        `${LOCAL_API_BASE}/api/local-demo-catalog/${localCatalog.session_id}`
+        + `/entries/${selectedCatalogEntry.entry_id}/analyze`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            player_steamid: catalogPlayerSteamid,
+            question: question.trim() || "请综合复盘这场比赛",
+          }),
+        },
+      );
+      const job = await response.json() as DemoJob & { detail?: string };
+      if (!response.ok) throw new Error(job.detail ?? "无法启动本地解析");
+      setPendingDemoJobId(job.job_id);
+      const completed = await pollDemoJob(job);
+      setMatch(completed.match as Match);
+      setRemoteAnalysis(completed.analysis);
+      setCoachMessages([]);
+      setCoachMode(null);
+      setRememberedTurns(0);
+      setQuery(question.trim() || "综合复盘");
+      setUploadProgress(100);
+      setUploadStatus("资料库 Demo 解析完成，原始文件仍保留在原文件夹");
+      setPendingDemoJobId("");
+      if (completed.match) await loadQuality(completed.match.match_id);
+      document.querySelector("#workspace")?.scrollIntoView({ behavior: "smooth" });
+    } catch (reason) {
+      if (reason instanceof DOMException && reason.name === "AbortError") return;
+      setUploadProgress(null);
+      setUploadStatus("");
+      setCatalogError(reason instanceof Error ? reason.message : "Demo 处理失败");
+    } finally {
+      setCatalogPending(false);
     }
   }
 
@@ -1125,7 +1265,7 @@ export default function Home() {
   }
 
   return <main>
-    <nav><a href="#top" className="brand"><b>R</b> ROUNDMIND</a><div className="navActions"><a href="#player-hub">比赛历史</a><a href="#workspace">开始复盘</a><span className="status">● {processingMode === "local" && localBridge ? "LOCAL PARSER READY" : apiBase ? "CLOUD API READY" : "BROWSER DEMO"}</span></div></nav>
+    <nav><a href="#top" className="brand"><b>R</b> ROUNDMIND</a><div className="navActions"><a href="#player-hub">比赛历史</a><a href="#demo-library">Demo 资料库</a><a href="#workspace">开始复盘</a><span className="status">● {processingMode === "local" && localBridge ? "LOCAL PARSER READY" : apiBase ? "CLOUD API READY" : "BROWSER DEMO"}</span></div></nav>
     <section className="hero" id="top">
       <p className="eyebrow">EVIDENCE-BASED MATCH REVIEW</p>
       <h1>别只看战绩。<br/><em>找出真正丢分的习惯。</em></h1>
@@ -1151,6 +1291,26 @@ export default function Home() {
         <section><div className="hubSectionTitle"><h3>历史比赛</h3><span>{matchHistory.length} 场已隔离保存</span></div>{matchHistory.length ? <div className="historyList">{matchHistory.slice(0, 8).map((item) => <article key={item.match_id}><div><b>{item.player_name} · {item.map_name}</b><span>{item.score} · {item.rounds} 回合</span></div><strong>{item.kills}/{item.deaths}/{item.assists}</strong><small>ADR {item.adr}</small><i className={item.quality_gate}>质量 {item.quality_score}</i></article>)}</div> : <div className="hubEmpty">登录后上传第一份 Demo，这里会形成你的比赛时间线。</div>}</section>
         <section><div className="hubSectionTitle"><h3>玩家画像</h3><span>{playerProfile ? `${playerProfile.match_count} 场样本` : "等待历史数据"}</span></div>{playerProfile ? <div className="profileCard"><div className="profileLead"><b>{roleLabels[playerProfile.role_profile?.role ?? ""] ?? "待识别角色"}</b><span>置信度 {playerProfile.confidence.toUpperCase()} · {playerProfile.round_count} 回合 · {playerProfile.contact_count} 次交火</span></div>{playerProfile.role_profile?.evidence.slice(0, 3).map((item) => <p key={item}>{item}</p>)}{playerProfile.findings.slice(0, 3).map((item) => <div className="profileFinding" key={item.title}><b>{item.title}</b><span>{item.metric}</span></div>)}{playerProfile.training_goals.slice(0, 2).map((goal) => <div className="profileGoal" key={goal.focus}><b>{goal.focus}</b><span>{goal.metric} · 目标 {(goal.target_value * 100).toFixed(0)}%</span></div>)}</div> : <div className="hubEmpty">累计多场同一 SteamID 的 Demo 后生成角色、重复问题与训练目标。</div>}</section>
       </div>}
+    </section>
+    <section className="demoLibrary" id="demo-library">
+      <div className="libraryHeader">
+        <div><p className="eyebrow">LOCAL DEMO LIBRARY</p><h2>从文件夹里挑一场，而不是反复上传</h2><p>系统文件夹选择框负责授权；扫描、指纹去重和 Demo 读取都在你的电脑完成，网页看不到绝对路径。</p></div>
+        <button onClick={scanLocalDemoFolder} disabled={catalogPending || Boolean(pendingDemoJobId)}>{catalogPending ? "正在处理…" : processingMode === "local" && localBridge ? "选择并扫描文件夹" : "连接本地解析器"}<span>↗</span></button>
+      </div>
+      {processingMode !== "local" || !localBridge ? <div className="libraryConnect"><b>先连接本地解析器</b><span>连接后，点击一次即可弹出 Windows 文件夹选择框。几百 MB 的 Demo 不会经过公网。</span></div> : null}
+      {catalogPending && <div className="catalogProgress" aria-live="polite"><i/><span>{uploadStatus || "本机正在处理 Demo…"}</span></div>}
+      {catalogError && <p className="catalogError">{catalogError}</p>}
+      {localCatalog && <>
+        <div className="catalogStats"><div><span>扫描文件</span><b>{localCatalog.stats.files}</b></div><div><span>唯一 Demo</span><b>{localCatalog.stats.unique_files}</b></div><div><span>重复文件</span><b>{localCatalog.stats.duplicates}</b></div><div><span>读取失败</span><b>{localCatalog.stats.failed}</b></div><small>{localCatalog.root_name} · 文件夹授权 1 小时后自动失效</small></div>
+        <div className="catalogToolbar"><label>地图<select value={catalogMapFilter} onChange={(event) => setCatalogMapFilter(event.target.value)}><option value="all">全部地图</option>{catalogMaps.map((map) => <option value={map} key={map}>{map}</option>)}</select></label><label>游戏补丁<select value={catalogPatchFilter} onChange={(event) => setCatalogPatchFilter(event.target.value)}><option value="all">全部版本</option>{catalogPatches.map((patch) => <option value={patch} key={patch}>Patch {patch}</option>)}</select></label><span>显示 {visibleCatalogEntries.length} / {localCatalog.entries.length}</span></div>
+        <div className="catalogGrid">{visibleCatalogEntries.map((entry) => <button className={`catalogCard ${entry.status} ${selectedCatalogEntryId === entry.entry_id ? "selected" : ""}`} key={entry.entry_id} onClick={() => chooseCatalogEntry(entry)} disabled={entry.status !== "metadata_ready"}>
+          <div className="catalogCardTop"><span>{entry.status === "metadata_ready" ? entry.map_name ?? "未知地图" : entry.status === "duplicate" ? "重复文件" : "读取失败"}</span><i>{(entry.file_size_bytes / 1024 / 1024).toFixed(1)} MB</i></div>
+          <b title={entry.relative_path}>{entry.relative_path}</b>
+          <div className="catalogTags"><span>PATCH {entry.patch_version ?? "?"}</span><span>{entry.player_count} PLAYERS</span><span>{entry.demo_type === "server_demo" ? "服务器视角" : entry.demo_type === "pov_demo" ? "玩家视角" : "类型未知"}</span></div>
+          <small>{entry.status === "duplicate" ? `与 ${entry.duplicate_of} 内容相同` : entry.status === "failed" ? entry.error : entry.source === "unknown" ? "来源未确认" : `${entry.source} · ${entry.source_confidence.toUpperCase()}`}</small>
+        </button>)}</div>
+        {selectedCatalogEntry && <div className="catalogSelection"><div><span>已选择</span><b>{selectedCatalogEntry.relative_path}</b><small>{selectedCatalogEntry.map_name} · Patch {selectedCatalogEntry.patch_version ?? "未知"} · 原文件不会被删除</small></div><label>复盘玩家<select value={catalogPlayerSteamid} onChange={(event) => setCatalogPlayerSteamid(event.target.value)}>{selectedCatalogEntry.players.map((player) => <option value={player.steamid} key={player.steamid}>{player.name} · Steam …{player.steamid.slice(-6)}</option>)}</select></label><button onClick={analyzeCatalogEntry} disabled={catalogPending || !catalogPlayerSteamid || Boolean(pendingDemoJobId)}>解析这场 Demo <span>↗</span></button></div>}
+      </>}
     </section>
     <section className="workspace" id="workspace">
       <aside className="controls">

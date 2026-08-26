@@ -5,6 +5,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+from fastapi.testclient import TestClient
 
 from chapter07_cs2_coach.demo_catalog import (
     DemoInspection,
@@ -14,7 +17,23 @@ from chapter07_cs2_coach.demo_catalog import (
     write_catalog_json,
 )
 from chapter07_cs2_coach.demo_parser import DemoParseError
+from chapter07_cs2_coach.demo_jobs import DemoJobManager
+from chapter07_cs2_coach.local_demo_catalog import (
+    DirectorySelectionCancelled,
+    LocalDemoCatalogManager,
+)
 from chapter07_cs2_coach.models import DemoPlayerOption
+from chapter07_cs2_coach.api import create_app
+from chapter07_cs2_coach.runtime import CS2CoachRuntime
+
+
+class DeferredExecutor:
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, tuple[object, ...], dict[str, object]]] = []
+
+    def submit(self, function, *args, **kwargs):
+        self.calls.append((function, args, kwargs))
+        return None
 
 
 class DemoCatalogTests(unittest.TestCase):
@@ -98,6 +117,69 @@ class DemoCatalogTests(unittest.TestCase):
             client_name="SourceTV Demo",
         )
         self.assertEqual((source, confidence, evidence), ("unknown", "unknown", None))
+
+    def test_local_catalog_session_never_exposes_absolute_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = root / "match.dem"
+            demo.write_bytes(b"demo")
+            inspection = DemoInspection(
+                header={"map_name": "de_dust2"},
+                players=[DemoPlayerOption(name="Learner", steamid="123")],
+            )
+            manager = LocalDemoCatalogManager(
+                chooser=lambda: root,
+                inspector=lambda _: inspection,
+            )
+
+            response = manager.select_and_scan()
+            entry = response.entries[0]
+            resolved, resolved_entry = manager.resolve(response.session_id, entry.entry_id)
+
+            self.assertEqual(resolved, demo.resolve())
+            self.assertEqual(resolved_entry.relative_path, "match.dem")
+            self.assertNotIn(str(root), response.model_dump_json())
+
+    def test_cancelled_folder_selection_is_controlled(self) -> None:
+        manager = LocalDemoCatalogManager(chooser=lambda: None)
+
+        with self.assertRaises(DirectorySelectionCancelled):
+            manager.select_and_scan()
+
+    def test_local_catalog_api_starts_job_without_deleting_original(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            demo = root / "match.dem"
+            demo.write_bytes(b"PBDEMS2\x00catalog")
+            inspection = DemoInspection(
+                header={"map_name": "de_dust2", "client_name": "SourceTV Demo"},
+                players=[DemoPlayerOption(name="Learner", steamid="123")],
+            )
+            manager = LocalDemoCatalogManager(
+                chooser=lambda: root,
+                inspector=lambda _: inspection,
+            )
+            runtime = CS2CoachRuntime.create()
+            jobs = DemoJobManager(runtime, executor=DeferredExecutor())
+            with patch.dict("os.environ", {"ROUNDMIND_LOCAL_BRIDGE": "true"}):
+                client = TestClient(create_app(runtime, jobs))
+                client.app.state.local_demo_catalogs = manager
+                catalog_response = client.post(
+                    "/api/local-demo-catalog/select-directory"
+                )
+                catalog = catalog_response.json()
+                entry = catalog["entries"][0]
+                job_response = client.post(
+                    f"/api/local-demo-catalog/{catalog['session_id']}"
+                    f"/entries/{entry['entry_id']}/analyze",
+                    json={"player_steamid": "123", "question": "分析接战"},
+                )
+
+                self.assertEqual(catalog_response.status_code, 200)
+                self.assertEqual(job_response.status_code, 202)
+                self.assertEqual(job_response.json()["status"], "queued")
+                client.delete(f"/api/demo-jobs/{job_response.json()['job_id']}")
+            self.assertTrue(demo.exists())
 
 
 if __name__ == "__main__":

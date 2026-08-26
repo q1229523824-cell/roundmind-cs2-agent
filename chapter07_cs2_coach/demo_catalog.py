@@ -72,7 +72,7 @@ class DemoCatalog(BaseModel):
 Inspector = Callable[[Path], DemoInspection]
 
 
-def _sha256(path: Path, *, chunk_size: int = 4 * 1024 * 1024) -> str:
+def compute_demo_sha256(path: Path, *, chunk_size: int = 4 * 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         while chunk := stream.read(chunk_size):
@@ -136,7 +136,7 @@ def collect_demo_files(
     root = directory.resolve()
     iterator: Iterable[Path] = root.rglob("*.dem") if recursive else root.glob("*.dem")
     return sorted(
-        (path for path in iterator if path.is_file()),
+        (path for path in iterator if path.is_file() and not path.is_symlink()),
         key=lambda path: str(path.relative_to(root)).casefold(),
     )[:max_files]
 
@@ -160,7 +160,7 @@ def build_demo_catalog(
         relative_path = path.relative_to(root).as_posix()
         modified = datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()
         try:
-            fingerprint = _sha256(path)
+            fingerprint = compute_demo_sha256(path)
         except OSError:
             entries.append(
                 DemoCatalogEntry(

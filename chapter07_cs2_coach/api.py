@@ -34,6 +34,7 @@ from chapter07_cs2_coach.models import (
     CoachChatResponse,
     DemoJobResponse,
     DemoPlayerSelection,
+    LocalCatalogAnalysisRequest,
     MatchRecord,
     PlayerProfileResponse,
 )
@@ -48,6 +49,11 @@ from chapter07_cs2_coach.request_controls import InMemoryRateLimiter, client_ide
 from chapter07_cs2_coach.database import MatchOwnershipConflictError
 from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
 from chapter07_cs2_coach.gold_status import load_public_gold_status
+from chapter07_cs2_coach.local_demo_catalog import (
+    DirectorySelectionCancelled,
+    LocalCatalogResponse,
+    LocalDemoCatalogManager,
+)
 from chapter07_cs2_coach.auth import (
     AuthConfigurationError,
     AuthService,
@@ -146,6 +152,7 @@ def create_app(
         ),
     }
     app.state.trust_proxy_headers = _enabled("ROUNDMIND_TRUST_PROXY_HEADERS")
+    app.state.local_demo_catalogs = LocalDemoCatalogManager()
     if demo_jobs is not None:
         app.state.demo_jobs = demo_jobs
     elif os.getenv("ROUNDMIND_JOB_BACKEND", "local").strip().lower() == "celery":
@@ -393,6 +400,71 @@ def create_app(
     @app.get("/api/system/parser-accuracy", tags=["system"])
     def parser_accuracy():
         return load_public_gold_status(os.getenv("ROUNDMIND_GOLD_REPORT"))
+
+    @app.post(
+        "/api/local-demo-catalog/select-directory",
+        response_model=LocalCatalogResponse,
+        tags=["demos"],
+    )
+    def select_local_demo_directory() -> LocalCatalogResponse:
+        if not _local_bridge_enabled():
+            raise HTTPException(status_code=404, detail="本地 Demo 资料库只在本地模式可用。")
+        try:
+            return app.state.local_demo_catalogs.select_and_scan()
+        except DirectorySelectionCancelled as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
+        except (OSError, ValueError, RuntimeError) as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+    @app.post(
+        "/api/local-demo-catalog/{session_id}/entries/{entry_id}/analyze",
+        response_model=DemoJobResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+        tags=["demos"],
+    )
+    def analyze_local_catalog_entry(
+        session_id: str,
+        entry_id: str,
+        selection: LocalCatalogAnalysisRequest,
+    ) -> DemoJobResponse:
+        if not _local_bridge_enabled():
+            raise HTTPException(status_code=404, detail="本地 Demo 资料库只在本地模式可用。")
+        try:
+            path, entry = app.state.local_demo_catalogs.resolve(session_id, entry_id)
+        except KeyError as error:
+            raise HTTPException(
+                status_code=404,
+                detail="Demo 资料库已过期或文件已移动，请重新扫描。",
+            ) from error
+        if entry.status != "metadata_ready":
+            raise HTTPException(status_code=409, detail="请选择可解析的唯一 Demo。")
+        player = next(
+            (
+                item
+                for item in entry.players
+                if item.steamid == selection.player_steamid
+            ),
+            None,
+        )
+        if player is None:
+            raise HTTPException(status_code=422, detail="请选择这份 Demo 中的玩家。")
+        if entry.file_size_bytes > MAX_DEMO_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Demo 文件不能超过 {MAX_DEMO_MB} MB。",
+            )
+        try:
+            app.state.demo_jobs.ensure_capacity()
+            return app.state.demo_jobs.submit(
+                path=path,
+                filename=Path(entry.relative_path).name,
+                player_name=player.name,
+                player_steamid=player.steamid,
+                question=selection.question.strip(),
+                preserve_source=True,
+            )
+        except DemoQueueFullError as error:
+            raise HTTPException(status_code=429, detail=str(error)) from error
 
     @app.post("/api/matches", response_model=MatchRecord, tags=["matches"])
     def add_match(

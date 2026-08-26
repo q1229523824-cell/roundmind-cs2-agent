@@ -53,6 +53,7 @@ class _DemoJob:
     created_at: float = field(default_factory=monotonic, repr=False)
     finished_at: float | None = field(default=None, repr=False)
     selection_timer: Timer | None = field(default=None, repr=False)
+    delete_path_on_finish: bool = field(default=True, repr=False)
 
 
 class DemoJobManager:
@@ -105,6 +106,7 @@ class DemoJobManager:
         player_steamid: str | None = None,
         question: str,
         owner_id: str | None = None,
+        preserve_source: bool = False,
     ) -> DemoJobResponse:
         job = _DemoJob(
             job_id=uuid4().hex,
@@ -114,6 +116,7 @@ class DemoJobManager:
             player_steamid=player_steamid,
             question=question,
             owner_id=owner_id,
+            delete_path_on_finish=not preserve_source,
         )
         self._enqueue(job)
         return self.get(job.job_id)
@@ -410,7 +413,7 @@ class DemoJobManager:
             yield path
 
     def _delete_source(self, job: _DemoJob) -> None:
-        if job.path is not None:
+        if job.path is not None and job.delete_path_on_finish:
             job.path.unlink(missing_ok=True)
         elif job.object_key is not None:
             self.object_store.delete(job.object_key)

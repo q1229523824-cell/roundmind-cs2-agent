@@ -35,6 +35,9 @@ test("server-renders the RoundMind demo upload experience", async () => {
   assert.match(visibleHtml, /云端模式/);
   assert.match(visibleHtml, /本地模式/);
   assert.match(visibleHtml, /大文件不经过互联网/);
+  assert.match(visibleHtml, /Demo 资料库/);
+  assert.match(visibleHtml, /连接本地解析器/);
+  assert.match(visibleHtml, /从文件夹里挑一场，而不是反复上传/);
   assert.match(visibleHtml, /\.dem 最大 500 MB/);
   assert.match(visibleHtml, /accept="\.dem,\.json,application\/json"/);
   assert.match(visibleHtml, /选择要复盘的玩家/);
@@ -66,6 +69,11 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /const MAX_DEMO_MB = 500/);
   assert.match(page, /const LOCAL_API_BASE = "http:\/\/127\.0\.0\.1:8765"/);
   assert.match(page, /\/api\/system\/local-bridge/);
+  assert.match(page, /\/api\/local-demo-catalog\/select-directory/);
+  assert.match(page, /\/entries\/\$\{selectedCatalogEntry\.entry_id\}\/analyze/);
+  assert.match(page, /地图/);
+  assert.match(page, /游戏补丁/);
+  assert.match(page, /重复文件/);
   assert.match(page, /get\("processing"\) === "local"/);
   assert.match(page, /file\.size > MAX_DEMO_BYTES/);
   assert.match(page, /\/api\/demo-jobs/);
