@@ -477,6 +477,7 @@ class DemoJobResponse(BaseModel):
     match: MatchRecord | None = None
     analysis: AnalysisResponse | None = None
     error: str | None = None
+    duration_ms: int | None = Field(default=None, ge=0)
 
 
 class DemoPlayerSelection(BaseModel):

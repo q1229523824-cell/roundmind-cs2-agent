@@ -124,6 +124,68 @@ type DemoJob = {
   match: Match | null;
   analysis: AgentAnalysis | null;
   error: string | null;
+  duration_ms: number | null;
+};
+
+type AuthUser = { id: string; email: string };
+
+type MatchHistoryItem = {
+  match_id: string;
+  player_name: string;
+  player_steamid: string | null;
+  map_name: string;
+  score: string;
+  rounds: number;
+  kills: number;
+  deaths: number;
+  assists: number;
+  adr: number;
+  quality_score: number;
+  quality_gate: "pass" | "review" | "fail";
+};
+
+type QualityAudit = {
+  quality_score: number;
+  gate: "pass" | "review" | "fail";
+  warnings: string[];
+  checks: Array<{
+    key: string;
+    status: "pass" | "warning" | "fail";
+    observed: string;
+    expected: string;
+    message: string;
+  }>;
+};
+
+type PlayerProfile = {
+  player_name: string;
+  player_steamid: string;
+  map_name: string;
+  match_count: number;
+  round_count: number;
+  contact_count: number;
+  confidence: "high" | "medium" | "low";
+  quality_score_average: number | null;
+  role_profile: { role: string; confidence: string; evidence: string[] } | null;
+  findings: Array<{ title: string; metric: string; status: string; confidence: string }>;
+  training_goals: Array<{
+    focus: string;
+    metric: string;
+    baseline_value: number;
+    target_value: number;
+    status: string;
+    confidence: string;
+  }>;
+};
+
+type JobMetrics = {
+  retained_jobs: number;
+  pending_jobs: number;
+  max_pending_jobs: number;
+  workers: number | null;
+  status_counts: Record<string, number>;
+  success_rate: number | null;
+  average_duration_ms: number | null;
 };
 
 type CoachChatResponse = {
@@ -233,6 +295,21 @@ const outcomeLabels = {
   death: "最终死亡",
   disengaged: "主动脱离",
 };
+
+const roleLabels: Record<string, string> = {
+  primary_awper: "主狙击手",
+  hybrid_awper: "混合狙击手",
+  rifle_initiator: "步枪突破倾向",
+  rifler: "步枪手",
+  mixed: "混合角色",
+  insufficient_evidence: "样本不足",
+};
+
+function formatDuration(milliseconds: number | null): string {
+  if (milliseconds === null) return "等待样本";
+  const seconds = Math.round(milliseconds / 1000);
+  return seconds >= 60 ? `${Math.floor(seconds / 60)}分${seconds % 60}秒` : `${seconds}秒`;
+}
 
 function contactCardKey(matchId: string, card: ContactDecisionCard): string {
   return `${matchId}:${card.round_number}:${card.tick}:${card.side}:${card.location}`;
@@ -380,6 +457,18 @@ export default function Home() {
   const [annotationPending, setAnnotationPending] = useState("");
   const [annotationError, setAnnotationError] = useState("");
   const [calibration, setCalibration] = useState<CalibrationSummary>({ total: 0, agreements: 0, agreement_rate: null });
+  const [authToken, setAuthToken] = useState("");
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [authAvailable, setAuthAvailable] = useState<boolean | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authPending, setAuthPending] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [matchHistory, setMatchHistory] = useState<MatchHistoryItem[]>([]);
+  const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(null);
+  const [qualityAudit, setQualityAudit] = useState<QualityAudit | null>(null);
+  const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(null);
   const coachAbortRef = useRef<AbortController | null>(null);
   const demoPollAbortRef = useRef<AbortController | null>(null);
   const lastDemoFileRef = useRef<File | null>(null);
@@ -406,12 +495,91 @@ export default function Home() {
   const contactDecisionCards = remoteAnalysis?.contact_decision_cards ?? [];
   const knowledgeReferences = remoteAnalysis?.knowledge_references ?? [];
 
+  function backendHeaders(json = false): Record<string, string> {
+    const headers: Record<string, string> = {};
+    if (json) headers["Content-Type"] = "application/json";
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    return headers;
+  }
+
   useEffect(() => {
     fetch("/api/config")
       .then((response) => response.ok ? response.json() : Promise.reject())
       .then((config: { backendUrl?: string }) => setApiBase((config.backendUrl ?? "").replace(/\/$/, "")))
       .catch(() => setApiBase(""));
   }, []);
+
+  useEffect(() => {
+    if (!apiBase) return;
+    let disposed = false;
+    const storedToken = window.sessionStorage.getItem("roundmind_access_token") ?? "";
+    Promise.all([
+      fetch(`${apiBase}/health`).then((response) => response.json()),
+      fetch(`${apiBase}/api/system/job-metrics`).then((response) => response.json()),
+    ]).then(async ([health, metrics]: [{ auth?: string }, JobMetrics]) => {
+      if (disposed) return;
+      const enabled = health.auth === "required";
+      setAuthAvailable(enabled);
+      setJobMetrics(metrics);
+      if (!enabled || !storedToken) return;
+      const response = await fetch(`${apiBase}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${storedToken}` },
+      });
+      if (!response.ok) {
+        window.sessionStorage.removeItem("roundmind_access_token");
+        return;
+      }
+      const user = await response.json() as AuthUser;
+      if (!disposed) {
+        setAuthToken(storedToken);
+        setAuthUser(user);
+      }
+    }).catch(() => {
+      if (!disposed) setAuthAvailable(null);
+    });
+    const timer = window.setInterval(() => {
+      fetch(`${apiBase}/api/system/job-metrics`)
+        .then((response) => response.ok ? response.json() : Promise.reject())
+        .then((metrics: JobMetrics) => { if (!disposed) setJobMetrics(metrics); })
+        .catch(() => undefined);
+    }, 10_000);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (!apiBase || !authToken || !authUser) {
+      setMatchHistory([]);
+      setPlayerProfile(null);
+      return;
+    }
+    const controller = new AbortController();
+    const headers = { Authorization: `Bearer ${authToken}` };
+    fetch(`${apiBase}/api/match-history`, { headers, signal: controller.signal })
+      .then(async (response) => {
+        const body = await response.json() as MatchHistoryItem[] | { detail?: string };
+        if (!response.ok) throw responseError(response, "无法读取比赛历史");
+        return body as MatchHistoryItem[];
+      })
+      .then(async (history) => {
+        setMatchHistory(history);
+        const first = history.find((item) => item.player_steamid);
+        if (!first?.player_steamid) return;
+        const response = await fetch(
+          `${apiBase}/api/player-profiles/${first.player_steamid}`,
+          { headers, signal: controller.signal },
+        );
+        if (response.ok) setPlayerProfile(await response.json() as PlayerProfile);
+      })
+      .catch((reason) => {
+        if (!(reason instanceof DOMException && reason.name === "AbortError")) {
+          setAuthError(reason instanceof Error ? reason.message : "无法读取个人数据");
+        }
+      });
+    return () => controller.abort();
+  }, [apiBase, authToken, authUser]);
 
   useEffect(() => {
     if (!remoteAnalysis || !match.player_steamid) return;
@@ -472,6 +640,57 @@ export default function Home() {
     return () => controller.abort();
   }, [contactDecisionCards, match.match_id, match.map_name, match.player_steamid]);
 
+  async function submitAuth() {
+    if (!apiBase || authPending) return;
+    setAuthPending(true);
+    setAuthError("");
+    try {
+      const response = await fetch(`${apiBase}/api/auth/${authMode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: authEmail.trim(), password: authPassword }),
+      });
+      const body = await response.json() as {
+        access_token?: string;
+        user?: AuthUser;
+        detail?: string;
+      };
+      if (!response.ok || !body.access_token || !body.user) {
+        throw responseError(response, body.detail ?? "登录失败");
+      }
+      window.sessionStorage.setItem("roundmind_access_token", body.access_token);
+      setAuthToken(body.access_token);
+      setAuthUser(body.user);
+      setAuthPassword("");
+    } catch (reason) {
+      setAuthError(reason instanceof Error ? reason.message : "登录失败");
+    } finally {
+      setAuthPending(false);
+    }
+  }
+
+  function signOut() {
+    window.sessionStorage.removeItem("roundmind_access_token");
+    setAuthToken("");
+    setAuthUser(null);
+    setMatchHistory([]);
+    setPlayerProfile(null);
+    setAuthError("");
+  }
+
+  async function loadQuality(matchId: string) {
+    if (!apiBase) return;
+    try {
+      const response = await fetch(`${apiBase}/api/matches/${matchId}/quality`, {
+        headers: backendHeaders(),
+      });
+      if (!response.ok) throw responseError(response, "无法生成质量报告");
+      setQualityAudit(await response.json() as QualityAudit);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "无法生成质量报告");
+    }
+  }
+
   async function annotateDecision(card: ContactDecisionCard, humanAction: DecisionAction) {
     if (!match.player_steamid) return;
     const cardKey = contactCardKey(match.match_id, card);
@@ -506,6 +725,7 @@ export default function Home() {
     if (!file) return;
     setError("");
     setRemoteAnalysis(null);
+    setQualityAudit(null);
     setCoachMessages([]);
     setCoachMode(null);
     setRememberedTurns(0);
@@ -546,6 +766,7 @@ export default function Home() {
       const job = await new Promise<DemoJob>((resolve, reject) => {
         const request = new XMLHttpRequest();
         request.open("POST", `${apiBase}/api/demo-jobs`);
+        if (authToken) request.setRequestHeader("Authorization", `Bearer ${authToken}`);
         request.upload.onprogress = (event) => {
           if (event.lengthComputable) setUploadProgress(Math.round(event.loaded / event.total * 30));
         };
@@ -593,7 +814,10 @@ export default function Home() {
           ? "正在读取 Demo 中的玩家名单…"
           : "服务器正在解析回合与玩家事件…");
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
-        const response = await fetch(`${apiBase}/api/demo-jobs/${current.job_id}`, { signal: controller.signal });
+        const response = await fetch(`${apiBase}/api/demo-jobs/${current.job_id}`, {
+          headers: backendHeaders(),
+          signal: controller.signal,
+        });
         if (!response.ok) throw responseError(response, "无法查询 Demo 解析进度");
         current = await response.json();
       }
@@ -609,7 +833,10 @@ export default function Home() {
     const jobId = pendingDemoJobId;
     demoPollAbortRef.current?.abort();
     try {
-      const response = await fetch(`${apiBase}/api/demo-jobs/${jobId}`, { method: "DELETE" });
+      const response = await fetch(`${apiBase}/api/demo-jobs/${jobId}`, {
+        method: "DELETE",
+        headers: backendHeaders(),
+      });
       const body = await response.json();
       if (!response.ok) throw responseError(response, body.detail ?? "无法取消 Demo 任务");
       setUploadStatus("Demo 解析已取消，临时文件已清理");
@@ -632,7 +859,7 @@ export default function Home() {
     try {
       const response = await fetch(`${apiBase}/api/demo-jobs/${pendingDemoJobId}/player`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: backendHeaders(true),
         body: JSON.stringify({
           player_name: player.name,
           player_steamid: player.steamid,
@@ -651,6 +878,7 @@ export default function Home() {
       setUploadProgress(100);
       setUploadStatus("Demo 解析完成，临时文件已删除");
       setPendingDemoJobId("");
+      if (completed.match) await loadQuality(completed.match.match_id);
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") return;
       setUploadProgress(null);
@@ -676,7 +904,7 @@ export default function Home() {
     try {
       const response = await fetch(`${apiBase}/api/analyze`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: backendHeaders(true),
         body: JSON.stringify({ match_id: match.match_id, question: nextQuestion }),
       });
       const body = await response.json();
@@ -717,7 +945,7 @@ export default function Home() {
     try {
       const response = await fetch("/api/coach/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: backendHeaders(true),
         body: JSON.stringify({
           playerSteamid: match.player_steamid,
           mapName: match.map_name,
@@ -792,14 +1020,32 @@ export default function Home() {
   }
 
   return <main>
-    <nav><a href="#top" className="brand"><b>R</b> ROUNDMIND</a><span className="status">● {apiBase ? "DEMO API READY" : "BROWSER DEMO"}</span></nav>
+    <nav><a href="#top" className="brand"><b>R</b> ROUNDMIND</a><div className="navActions"><a href="#player-hub">比赛历史</a><a href="#workspace">开始复盘</a><span className="status">● {apiBase ? "DEMO API READY" : "BROWSER DEMO"}</span></div></nav>
     <section className="hero" id="top">
       <p className="eyebrow">EVIDENCE-BASED MATCH REVIEW</p>
       <h1>别只看战绩。<br/><em>找出真正丢分的习惯。</em></h1>
       <p className="intro">RoundMind 会选择合适的分析工具，追踪关键回合，并把冷冰冰的数据转化成下一场就能执行的训练重点。</p>
       <div className="heroStats"><div><strong>6</strong><span>分析工具</span></div><div><strong>{MAX_DEMO_MB}MB</strong><span>Demo 上限</span></div><div><strong>8</strong><span>决策评测场景</span></div><div><strong>0</strong><span>默认模型费用</span></div></div>
     </section>
-    <section className="workspace">
+    <section className="playerHub" id="player-hub">
+      <div className="hubHeader"><div><p className="eyebrow">PLAYER HUB / OPERATIONS</p><h2>个人训练中心</h2><p>把任务健康度、数据质量、历史比赛与跨场画像放在同一个可追溯视图中。</p></div>{authUser && <div className="accountBadge"><span>{authUser.email}</span><button onClick={signOut}>退出登录</button></div>}</div>
+      <div className="opsMetrics">
+        <div><span>当前任务</span><b>{jobMetrics?.pending_jobs ?? "—"} / {jobMetrics?.max_pending_jobs ?? "—"}</b></div>
+        <div><span>近期成功率</span><b>{jobMetrics?.success_rate === null || jobMetrics?.success_rate === undefined ? "等待样本" : `${(jobMetrics.success_rate * 100).toFixed(0)}%`}</b></div>
+        <div><span>平均处理时间</span><b>{formatDuration(jobMetrics?.average_duration_ms ?? null)}</b></div>
+        <div><span>数据质量</span><b>{qualityAudit ? `${qualityAudit.quality_score}/100` : "解析后生成"}</b></div>
+      </div>
+      {authAvailable === false && <div className="authNotice"><b>当前以匿名体验模式运行</b><p>历史与玩家画像接口已经完成；在 Render 配置数据库和登录密钥后，这里会自动开放账户登录与数据隔离。</p></div>}
+      {authAvailable && !authUser && <div className="authPanel">
+        <div><p className="eyebrow">PRIVATE MATCH HISTORY</p><h3>{authMode === "login" ? "登录后保存你的复盘" : "创建 RoundMind 账户"}</h3><p>登录用户的比赛、Demo 任务、画像和教练上下文会按账户隔离。</p></div>
+        <div className="authForm"><input type="email" autoComplete="email" placeholder="邮箱" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)}/><input type="password" autoComplete={authMode === "login" ? "current-password" : "new-password"} minLength={10} placeholder="密码（至少 10 位）" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") submitAuth(); }}/><button onClick={submitAuth} disabled={authPending || !authEmail.trim() || authPassword.length < 10}>{authPending ? "处理中…" : authMode === "login" ? "登录" : "注册并登录"}</button><button className="authSwitch" onClick={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(""); }}>{authMode === "login" ? "没有账户？创建一个" : "已有账户？返回登录"}</button>{authError && <p className="error">{authError}</p>}</div>
+      </div>}
+      {authUser && <div className="accountGrid">
+        <section><div className="hubSectionTitle"><h3>历史比赛</h3><span>{matchHistory.length} 场已隔离保存</span></div>{matchHistory.length ? <div className="historyList">{matchHistory.slice(0, 8).map((item) => <article key={item.match_id}><div><b>{item.player_name} · {item.map_name}</b><span>{item.score} · {item.rounds} 回合</span></div><strong>{item.kills}/{item.deaths}/{item.assists}</strong><small>ADR {item.adr}</small><i className={item.quality_gate}>质量 {item.quality_score}</i></article>)}</div> : <div className="hubEmpty">登录后上传第一份 Demo，这里会形成你的比赛时间线。</div>}</section>
+        <section><div className="hubSectionTitle"><h3>玩家画像</h3><span>{playerProfile ? `${playerProfile.match_count} 场样本` : "等待历史数据"}</span></div>{playerProfile ? <div className="profileCard"><div className="profileLead"><b>{roleLabels[playerProfile.role_profile?.role ?? ""] ?? "待识别角色"}</b><span>置信度 {playerProfile.confidence.toUpperCase()} · {playerProfile.round_count} 回合 · {playerProfile.contact_count} 次交火</span></div>{playerProfile.role_profile?.evidence.slice(0, 3).map((item) => <p key={item}>{item}</p>)}{playerProfile.findings.slice(0, 3).map((item) => <div className="profileFinding" key={item.title}><b>{item.title}</b><span>{item.metric}</span></div>)}{playerProfile.training_goals.slice(0, 2).map((goal) => <div className="profileGoal" key={goal.focus}><b>{goal.focus}</b><span>{goal.metric} · 目标 {(goal.target_value * 100).toFixed(0)}%</span></div>)}</div> : <div className="hubEmpty">累计多场同一 SteamID 的 Demo 后生成角色、重复问题与训练目标。</div>}</section>
+      </div>}
+    </section>
+    <section className="workspace" id="workspace">
       <aside className="controls">
         <p className="eyebrow">01 / MATCH INPUT</p><h2>开始一次复盘</h2>
         <p className="fieldLabel">比赛数据</p><div className="selectLike">{match.player_name} · {match.map_name} · {match.team_score}:{match.opponent_score}</div>
@@ -821,6 +1067,7 @@ export default function Home() {
         <header><div><p className="eyebrow">02 / COACH REPORT</p><h2>{match.player_name} · {match.map_name}</h2></div><span className="confidence">置信度 {confidence}</span></header>
         <div className="metrics"><div><span>SCORE</span><strong>{stats.score}</strong></div><div><span>K / D / A</span><strong>{stats.kills} / {stats.deaths} / {stats.assists}</strong></div><div><span>ADR</span><strong>{stats.adr}</strong></div><div><span>KAST</span><strong>{stats.kast}%</strong></div><div><span>ROUNDS</span><strong>{stats.rounds}</strong></div></div>
         <div className="reportGrid"><section><h3>教练结论</h3><p className="lead">{remoteAnalysis?.answer || `${match.player_name} 在 ${match.map_name} 打出 ${stats.kills}/${stats.deaths}/${stats.assists}，ADR ${stats.adr}，KAST ${stats.kast}%。`}</p>{evidence.map((item, index) => <div className="finding" key={item.finding}><b>{index + 1}. {item.finding}</b><p>证据：{item.metric}；相关回合：{item.rounds.map((round) => `R${round}`).join("、") || "全场统计"}。</p><p>训练建议：{item.suggestion}</p></div>)}<p className="focus">下一场先只跟踪最高优先级问题，避免一次同时修改太多习惯。</p></section><aside><h3>证据卡片</h3>{evidence.map((item) => <div className={`evidence ${item.severity}`} key={item.metric}><span>{item.severity.toUpperCase()}</span><p>{item.metric}</p><i>{item.rounds.map((round) => `R${round}`).join(" · ") || "全场统计"}</i></div>)}</aside></div>
+        {qualityAudit && <section className={`qualityPanel ${qualityAudit.gate}`}><div className="qualityLead"><div><p className="eyebrow">DATA QUALITY GATE</p><h3>这份 Demo 的结论能信到什么程度？</h3></div><strong>{qualityAudit.quality_score}<small>/100</small></strong></div><div className="qualityChecks">{qualityAudit.checks.map((check) => <article className={check.status} key={check.key}><span>{check.status === "pass" ? "通过" : check.status === "warning" ? "复核" : "失败"}</span><b>{check.observed}</b><p>{check.message}</p><small>期望：{check.expected}</small></article>)}</div>{qualityAudit.warnings.length > 0 && <p className="qualityWarning">质量门禁不会把解析缺失误判成你的游戏问题：{qualityAudit.warnings.join("；")}</p>}</section>}
         {contactDecisionCards.length > 0 && <section className="contactDecisionSection">
           <div className="sectionTitle">
             <div><p className="eyebrow">03 / ACTION COMPARISON</p><h3>当时还有哪些选择？</h3></div>

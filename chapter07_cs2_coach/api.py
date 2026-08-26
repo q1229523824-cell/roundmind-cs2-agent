@@ -46,6 +46,7 @@ from chapter07_cs2_coach.distributed_jobs import distributed_manager_from_enviro
 from chapter07_cs2_coach.runtime import CS2CoachRuntime
 from chapter07_cs2_coach.request_controls import InMemoryRateLimiter, client_identifier
 from chapter07_cs2_coach.database import MatchOwnershipConflictError
+from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
 from chapter07_cs2_coach.auth import (
     AuthConfigurationError,
     AuthService,
@@ -293,6 +294,77 @@ def create_app(
             if identity
             else runtime.repository.list()
         )
+
+    @app.get("/api/match-history", tags=["matches"])
+    def match_history(
+        identity: UserResponse | None = Depends(current_identity),
+    ) -> list[dict[str, object]]:
+        matches = (
+            runtime.repository.list_for_owner(identity.id)
+            if identity
+            else runtime.repository.list()
+        )
+        history: list[dict[str, object]] = []
+        for match in reversed(matches):
+            rounds = len(match.rounds)
+            audit = audit_match(match)
+            history.append(
+                {
+                    "match_id": match.match_id,
+                    "player_name": match.player_name,
+                    "player_steamid": match.player_steamid,
+                    "map_name": match.map_name,
+                    "score": f"{match.team_score}:{match.opponent_score}",
+                    "rounds": rounds,
+                    "kills": sum(item.kills for item in match.rounds),
+                    "deaths": sum(item.died for item in match.rounds),
+                    "assists": sum(item.assists for item in match.rounds),
+                    "adr": round(sum(item.damage for item in match.rounds) / rounds, 1),
+                    "quality_score": audit.quality_score,
+                    "quality_gate": audit.gate,
+                }
+            )
+        return history[:50]
+
+    @app.get("/api/matches/{match_id}/quality", tags=["matches"])
+    def match_quality(
+        match_id: str,
+        identity: UserResponse | None = Depends(current_identity),
+    ):
+        match = (
+            runtime.repository.get_for_owner(match_id, identity.id)
+            if identity
+            else runtime.repository.get(match_id)
+        )
+        if match is None:
+            raise HTTPException(status_code=404, detail="比赛不存在。")
+        return audit_match(match)
+
+    @app.get("/api/quality-summary", tags=["matches"])
+    def quality_summary(
+        identity: UserResponse | None = Depends(current_identity),
+    ):
+        matches = (
+            runtime.repository.list_for_owner(identity.id)
+            if identity
+            else runtime.repository.list()
+        )
+        return audit_matches(matches)
+
+    @app.get("/api/system/job-metrics", tags=["system"])
+    def job_metrics() -> dict[str, object]:
+        metrics = getattr(app.state.demo_jobs, "metrics", None)
+        if metrics is not None:
+            return metrics()
+        return {
+            "retained_jobs": 0,
+            "pending_jobs": app.state.demo_jobs.pending_count(),
+            "max_pending_jobs": app.state.demo_jobs.max_pending_jobs,
+            "workers": None,
+            "status_counts": {},
+            "success_rate": None,
+            "average_duration_ms": None,
+        }
 
     @app.post("/api/matches", response_model=MatchRecord, tags=["matches"])
     def add_match(

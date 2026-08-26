@@ -38,6 +38,7 @@ test("server-renders the RoundMind demo upload experience", async () => {
   assert.match(visibleHtml, /上传 Demo 后自动读取玩家名单/);
   assert.match(visibleHtml, /接战决策/);
   assert.match(visibleHtml, /围绕这名玩家继续追问/);
+  assert.match(visibleHtml, /个人训练中心/);
   assert.match(visibleHtml, /先完成一次 Demo 解析/);
   assert.match(visibleHtml, /<strong>6<\/strong><span>分析工具<\/span>/);
   assert.match(visibleHtml, /<strong>8<\/strong><span>决策评测场景<\/span>/);
@@ -75,6 +76,13 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /accept="\.dem,\.json,application\/json"/);
   assert.match(configRoute, /process\.env\.ROUNDMIND_API_URL/);
   assert.match(page, /\/api\/coach\/chat/);
+  assert.match(page, /\/api\/system\/job-metrics/);
+  assert.match(page, /\/api\/match-history/);
+  assert.match(page, /roundmind_access_token/);
+  assert.match(page, /api\/auth\/\$\{authMode\}/);
+  assert.match(page, /历史比赛/);
+  assert.match(page, /玩家画像/);
+  assert.match(page, /DATA QUALITY GATE/);
   assert.match(page, /CONTINUOUS COACH/);
   assert.match(page, /remembered_turns/);
   assert.match(page, /停止/);

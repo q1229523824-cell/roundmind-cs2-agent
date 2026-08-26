@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock, Timer
+from time import monotonic
 from uuid import uuid4
 
 from chapter07_cs2_coach.demo_parser import CS2DemoMatchParser, DemoParseError
@@ -49,6 +50,8 @@ class _DemoJob:
     player_options: list[DemoPlayerOption] = field(default_factory=list)
     error: str | None = None
     cancel_requested: bool = False
+    created_at: float = field(default_factory=monotonic, repr=False)
+    finished_at: float | None = field(default=None, repr=False)
     selection_timer: Timer | None = field(default=None, repr=False)
 
 
@@ -207,7 +210,42 @@ class DemoJobManager:
                 match=job.match,
                 analysis=job.analysis,
                 error=job.error,
+                duration_ms=(
+                    round(((job.finished_at or monotonic()) - job.created_at) * 1000)
+                    if job.status in {"completed", "failed", "cancelled"}
+                    else None
+                ),
             )
+
+    def metrics(self) -> dict[str, object]:
+        """返回当前实例保留任务的轻量指标，不包含用户或文件信息。"""
+        with self._lock:
+            jobs = list(self._jobs.values())
+            statuses = (
+                "queued", "discovering", "awaiting_player", "parsing",
+                "finalizing", "completed", "failed", "cancelled",
+            )
+            status_counts = {
+                status: sum(item.status == status for item in jobs)
+                for status in statuses
+            }
+            durations = [
+                (item.finished_at - item.created_at) * 1000
+                for item in jobs
+                if item.finished_at is not None
+            ]
+            completed = status_counts["completed"]
+            failed = status_counts["failed"]
+            resolved = completed + failed
+            return {
+                "retained_jobs": len(jobs),
+                "pending_jobs": self._pending_count_unlocked(),
+                "max_pending_jobs": self._max_pending_jobs,
+                "workers": self.max_workers,
+                "status_counts": status_counts,
+                "success_rate": round(completed / resolved, 4) if resolved else None,
+                "average_duration_ms": round(sum(durations) / len(durations)) if durations else None,
+            }
 
     def cancel(self, job_id: str, owner_id: str | None = None) -> DemoJobResponse:
         delete_now = False
@@ -226,6 +264,7 @@ class DemoJobManager:
             job.status = "cancelled"
             job.progress = 100
             job.error = "Demo 解析已取消。"
+            job.finished_at = monotonic()
             if job.selection_timer is not None:
                 job.selection_timer.cancel()
                 job.selection_timer = None
@@ -300,6 +339,7 @@ class DemoJobManager:
                 job.analysis = analysis
                 job.status = "completed"
                 job.progress = 100
+                job.finished_at = monotonic()
         except DemoParseError as error:
             self._fail(job, str(error))
         except Exception:
@@ -317,6 +357,7 @@ class DemoJobManager:
             job.error = message
             job.status = "failed"
             job.progress = 100
+            job.finished_at = monotonic()
 
     def _expire_selection(self, job_id: str) -> None:
         with self._lock:
@@ -326,6 +367,7 @@ class DemoJobManager:
             job.error = "玩家选择已超时，请重新上传 Demo。"
             job.status = "failed"
             job.progress = 100
+            job.finished_at = monotonic()
             job.selection_timer = None
         self._delete_source(job)
 

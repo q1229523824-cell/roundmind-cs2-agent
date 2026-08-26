@@ -8,7 +8,7 @@ services:
     healthCheckPath: /ready
     envVars:
       - key: ROUNDMIND_CORS_ORIGINS
-        value: https://roundmind-cs2-coach.kclespark.chatgpt.site
+        value: https://roundmind-cs2-agent.yangmiaomiao37.chatgpt.site,https://roundmind-cs2-coach.kclespark.chatgpt.site
       # 生产环境使用 Neon 的 direct（非 pooler）连接串，供容器启动时运行 Alembic。
       # 真实连接串只在 Render 控制台填写，不能提交到 Git。
       - key: DATABASE_URL

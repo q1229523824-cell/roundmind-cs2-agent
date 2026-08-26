@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import "./globals.css";
 import "./decision-cards.css";
 import "./coach-chat.css";
+import "./player-hub.css";
 
 const sans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const mono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] });

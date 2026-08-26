@@ -76,6 +76,24 @@ class AuthAndOwnershipTests(unittest.TestCase):
         )
         self.assertEqual(forbidden.status_code, 404)
 
+        first_history = self.client.get(
+            "/api/match-history", headers=self._headers(first)
+        )
+        second_history = self.client.get(
+            "/api/match-history", headers=self._headers(second)
+        )
+        self.assertEqual(
+            [item["match_id"] for item in first_history.json()], [match.match_id]
+        )
+        self.assertEqual(second_history.json(), [])
+        self.assertEqual(
+            self.client.get(
+                f"/api/matches/{match.match_id}/quality",
+                headers=self._headers(second),
+            ).status_code,
+            404,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

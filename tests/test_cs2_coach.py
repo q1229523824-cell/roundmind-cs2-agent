@@ -1633,6 +1633,25 @@ class CS2CoachApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertEqual(response.json(), {"detail": "数据库暂时不可用。"})
 
+    def test_match_history_quality_and_job_metrics_endpoints(self):
+        match = quality_ready_match(match_id="history-quality-api")
+        self.client.app.state.runtime.add_match(match)
+
+        history = self.client.get("/api/match-history")
+        quality = self.client.get(f"/api/matches/{match.match_id}/quality")
+        summary = self.client.get("/api/quality-summary")
+        metrics = self.client.get("/api/system/job-metrics")
+
+        self.assertEqual(history.status_code, 200)
+        item = next(row for row in history.json() if row["match_id"] == match.match_id)
+        self.assertEqual(item["quality_score"], 100)
+        self.assertEqual(item["quality_gate"], "pass")
+        self.assertEqual(quality.json()["gate"], "pass")
+        self.assertGreaterEqual(summary.json()["match_count"], 1)
+        self.assertEqual(metrics.status_code, 200)
+        self.assertEqual(metrics.json()["pending_jobs"], 0)
+        self.assertIn("status_counts", metrics.json())
+
     def test_heavy_endpoint_rate_limit_and_request_id(self):
         with patch.dict(
             "os.environ",

@@ -94,9 +94,13 @@ export async function POST(request: Request) {
     const session = sessionId(request);
     const playerRef = await anonymousPlayerRef(payload.playerSteamid);
     const history = await loadCoachHistory(session.value, playerRef, payload.mapName);
+    const authorization = request.headers.get("authorization");
     const backendResponse = await fetch(`${backendUrl}/api/coach/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(authorization ? { Authorization: authorization } : {}),
+      },
       body: JSON.stringify({
         player_steamid: payload.playerSteamid,
         map_name: payload.mapName,

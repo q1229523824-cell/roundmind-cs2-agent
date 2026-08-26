@@ -52,8 +52,10 @@ render.yaml           Render Blueprint
 - 可选 Redis + Celery 分布式任务：API 只投递 job_id，独立 Worker 解析大 Demo 并共享任务进度；
 - 单实例低成本限流在 multipart 解析前保护上传与 Agent 重接口；每个响应携带请求编号并输出结构化访问日志；
 - 用户可取消排队、读取名单或解析中的 Demo 任务，任务状态和临时对象均按幂等语义收敛；
+- 提供任务成功率、失败数和平均处理耗时，并在网页展示最近任务运行状态；
 - 前端错误会附带可检索的请求编号，失败的 Demo 可在当前页面一键重新上传；
 - 可选邮箱登录与 JWT 鉴权：Argon2 保存密码，比赛、任务、画像和对话按用户 UUID 隔离；
+- 网页提供个人训练中心：登录/注册、历史比赛、跨场玩家画像和单场数据质量门禁；
 - 可选 pgvector 混合 RAG：地图过滤 + 向量召回 + 阵营/点位/主题重排，默认仍可完全离线；
 - 基于完整交火生成武器分布、步枪/主狙/混合角色画像，并按武器、阵营、点位和距离拆解被先手伤害后的转化差距；
 - 可选 DeepSeek Planner，但只有显式启用时才会发送必要统计和问题。
@@ -70,6 +72,7 @@ FastAPI。数据库配置、迁移和回退方式见 `docs/postgresql-persistenc
 对象存储配置与安全边界见 `docs/object-storage.md`；未配置时保持本地临时存储。
 Redis/Celery 的进程职责、配置和 Worker 命令见 `docs/distributed-jobs.md`。
 登录开关、API 与所有权边界见 `docs/auth-and-ownership.md`。
+玩家运营中心、质量观测与正式启用登录的步骤见 `docs/player-operations-center.md`。
 向量生成边界、索引命令和评测方式见 `docs/pgvector-rag.md`。
 公开服务的限流、请求追踪和任务取消边界见 `docs/request-controls.md`。
 
