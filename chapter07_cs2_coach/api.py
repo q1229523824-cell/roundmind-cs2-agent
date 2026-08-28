@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from functools import lru_cache
 from time import perf_counter
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -49,6 +50,10 @@ from chapter07_cs2_coach.request_controls import InMemoryRateLimiter, client_ide
 from chapter07_cs2_coach.database import MatchOwnershipConflictError
 from chapter07_cs2_coach.quality_audit import audit_match, audit_matches
 from chapter07_cs2_coach.gold_status import load_public_gold_status
+from chapter07_cs2_coach.evaluation_report import (
+    EvaluationReport,
+    run_evaluation_report,
+)
 from chapter07_cs2_coach.local_demo_catalog import (
     DirectorySelectionCancelled,
     LocalCatalogResponse,
@@ -73,6 +78,13 @@ MAX_DEMO_BYTES = MAX_DEMO_MB * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 1024 * 1024
 DEFAULT_QUESTION = "请综合分析这场比赛，找出最值得优先改进的问题。"
 HTTP_LOGGER = logging.getLogger("uvicorn.error")
+
+
+@lru_cache(maxsize=1)
+def _cached_evaluation_report() -> EvaluationReport:
+    """缓存静态离线评测，避免公开页面每次刷新都重跑工作流。"""
+
+    return run_evaluation_report()
 
 
 def _bounded_positive_int(name: str, default: int, maximum: int) -> int:
@@ -400,6 +412,12 @@ def create_app(
     @app.get("/api/system/parser-accuracy", tags=["system"])
     def parser_accuracy():
         return load_public_gold_status(os.getenv("ROUNDMIND_GOLD_REPORT"))
+
+    @app.get("/api/system/evaluation", tags=["system"])
+    def system_evaluation() -> dict[str, object]:
+        """返回不含 Demo/用户数据的工程评测摘要。"""
+
+        return _cached_evaluation_report().model_dump(mode="json")
 
     @app.post(
         "/api/local-demo-catalog/select-directory",

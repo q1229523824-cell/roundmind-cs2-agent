@@ -1733,6 +1733,18 @@ class CS2CoachApiTests(unittest.TestCase):
             parser_accuracy.json()["gate"], "awaiting_verified_dataset"
         )
 
+    def test_engineering_evaluation_endpoint_is_aggregate_only(self):
+        response = self.client.get("/api/system/evaluation")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["schema_version"], "roundmind.evaluation-report.v1")
+        self.assertEqual(payload["decision_regression"]["passed"], 14)
+        self.assertEqual(payload["runtime_ab"]["accuracy_effect"], "not_evaluated")
+        serialized = json.dumps(payload, ensure_ascii=False)
+        self.assertNotIn("Learner", serialized)
+        self.assertNotIn("steamid", serialized.lower())
+
     def test_heavy_endpoint_rate_limit_and_request_id(self):
         with patch.dict(
             "os.environ",

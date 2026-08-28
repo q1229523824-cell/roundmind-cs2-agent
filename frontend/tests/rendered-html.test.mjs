@@ -49,7 +49,7 @@ test("server-renders the RoundMind demo upload experience", async () => {
   assert.match(visibleHtml, /GOLD STANDARD/);
   assert.match(visibleHtml, /先完成一次 Demo 解析/);
   assert.match(visibleHtml, /<strong>6<\/strong><span>分析工具<\/span>/);
-  assert.match(visibleHtml, /<strong>8<\/strong><span>决策评测场景<\/span>/);
+  assert.match(visibleHtml, /<strong>—<\/strong><span>决策回归场景<\/span>/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/i);
 });
 
@@ -100,6 +100,7 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /\/api\/coach\/chat/);
   assert.match(page, /\/api\/system\/job-metrics/);
   assert.match(page, /\/api\/system\/parser-accuracy/);
+  assert.match(page, /\/api\/system\/evaluation/);
   assert.match(page, /\/api\/match-history/);
   assert.match(page, /roundmind_access_token/);
   assert.match(page, /api\/auth\/\$\{authMode\}/);

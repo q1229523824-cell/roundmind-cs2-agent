@@ -254,3 +254,15 @@ Object Storage     Redis Queue
 > 设计并实现面向 CS2 Demo 的证据化复盘 Agent，使用 demoparser2 将大文件转为结构化比赛事件，通过 FastAPI 异步任务、LangGraph 工具编排、质量门禁、接战决策评分、RAG 和跨场玩家画像生成可追溯建议；以人工标注集评测候选动作准确率，并提供 React 前端、JWT 数据隔离及低成本云部署。
 
 面试时重点讲清三个取舍：为什么不把 Demo 直接交给大模型、为什么先做质量门禁、为什么把“事实计算”和“语言生成”分开。它们比简单罗列框架更能体现 Agent 工程能力。
+
+## 11. 简历量化口径（当前真实可验证）
+
+运行 `python -m chapter07_cs2_coach.evaluation_report` 可生成 JSON/Markdown 报告，当前可以安全写成：
+
+- 设计 14 个 Dust2 决策边界场景，规则回归 14/14 通过（100%）；这是工程回归指标，不是泛化准确率；
+- 覆盖 T/CT、5 类接战、3 类风险、4 类炸弹状态和 3 类支援条件，共 17/17 个预定义边界值；
+- 对 `prepare → quality → Coach → tools → evidence → scoring → RAG → Critic → report` 的 9 个运行阶段做可观测覆盖，样例为 9/9；
+- 提供 Coach-only 与 Coach+Critic 的可复现实验开关，记录 Critic 调用、工具调用、证据数和置信度变化；
+- 通过 500 MB 分块上传、队列容量和请求限流保护大文件服务，前端可切换本地解析以避免上传原始 Demo。
+
+不要把上面的工程指标改写成“提升胜率”“准确率 100%”或“用户分数上涨”。只有完成 verified Demo 金标准、盲测动作标注和同一玩家的前后测，才可以补充真实效果；`not_evaluated` 字段就是为了在面试中主动说明证据边界。

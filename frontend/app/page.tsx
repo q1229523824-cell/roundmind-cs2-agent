@@ -212,6 +212,14 @@ type ParserAccuracy = {
   message: string;
 };
 
+type EngineeringEvaluation = {
+  decision_regression: { total: number; passed: number; accuracy: number };
+  scenario_coverage: Array<{ covered: number; total: number }>;
+  runtime_ab: {
+    treatment: { stage_covered: string[]; stage_coverage: number };
+  };
+};
+
 type LocalBridgeStatus = {
   enabled: boolean;
   loopback_only: boolean;
@@ -547,6 +555,7 @@ export default function Home() {
   const [qualityAudit, setQualityAudit] = useState<QualityAudit | null>(null);
   const [jobMetrics, setJobMetrics] = useState<JobMetrics | null>(null);
   const [parserAccuracy, setParserAccuracy] = useState<ParserAccuracy | null>(null);
+  const [engineeringEvaluation, setEngineeringEvaluation] = useState<EngineeringEvaluation | null>(null);
   const coachAbortRef = useRef<AbortController | null>(null);
   const demoPollAbortRef = useRef<AbortController | null>(null);
   const lastDemoFileRef = useRef<File | null>(null);
@@ -743,12 +752,14 @@ export default function Home() {
       fetch(`${apiBase}/health`).then((response) => response.json()),
       fetch(`${apiBase}/api/system/job-metrics`).then((response) => response.json()),
       fetch(`${apiBase}/api/system/parser-accuracy`).then((response) => response.json()),
-    ]).then(async ([health, metrics, accuracy]: [{ auth?: string }, JobMetrics, ParserAccuracy]) => {
+      fetch(`${apiBase}/api/system/evaluation`).then((response) => response.ok ? response.json() : null),
+    ]).then(async ([health, metrics, accuracy, evaluation]: [{ auth?: string }, JobMetrics, ParserAccuracy, EngineeringEvaluation | null]) => {
       if (disposed) return;
       const enabled = health.auth === "required";
       setAuthAvailable(enabled);
       setJobMetrics(metrics);
       setParserAccuracy(accuracy);
+      if (evaluation) setEngineeringEvaluation(evaluation);
       if (!enabled || !storedToken) return;
       const response = await fetch(`${apiBase}/api/auth/me`, {
         headers: { Authorization: `Bearer ${storedToken}` },
@@ -1282,7 +1293,7 @@ export default function Home() {
       <p className="eyebrow">EVIDENCE-BASED MATCH REVIEW</p>
       <h1>别只看战绩。<br/><em>找出真正丢分的习惯。</em></h1>
       <p className="intro">RoundMind 会选择合适的分析工具，追踪关键回合，并把冷冰冰的数据转化成下一场就能执行的训练重点。</p>
-      <div className="heroStats"><div><strong>6</strong><span>分析工具</span></div><div><strong>{MAX_DEMO_MB}MB</strong><span>Demo 上限</span></div><div><strong>8</strong><span>决策评测场景</span></div><div><strong>0</strong><span>默认模型费用</span></div></div>
+      <div className="heroStats"><div><strong>6</strong><span>分析工具</span></div><div><strong>{MAX_DEMO_MB}MB</strong><span>Demo 上限</span></div><div><strong>{engineeringEvaluation?.decision_regression.total ?? "—"}</strong><span>决策回归场景</span></div><div><strong>{engineeringEvaluation ? `${engineeringEvaluation.runtime_ab.treatment.stage_covered.length}/9` : "—"}</strong><span>运行阶段覆盖</span></div></div>
     </section>
     <section className="playerHub" id="player-hub">
       <div className="hubHeader"><div><p className="eyebrow">PLAYER HUB / OPERATIONS</p><h2>个人训练中心</h2><p>把任务健康度、数据质量、历史比赛与跨场画像放在同一个可追溯视图中。</p></div>{authUser && <div className="accountBadge"><span>{authUser.email}</span><button onClick={signOut}>退出登录</button></div>}</div>
@@ -1292,6 +1303,7 @@ export default function Home() {
         <div><span>平均处理时间</span><b>{formatDuration(jobMetrics?.average_duration_ms ?? null)}</b></div>
         <div><span>数据质量</span><b>{qualityAudit ? `${qualityAudit.quality_score}/100` : "解析后生成"}</b></div>
         <div><span>解析准确率</span><b>{parserAccuracy?.available && parserAccuracy.average_critical_accuracy !== null ? `${(parserAccuracy.average_critical_accuracy * 100).toFixed(1)}%` : "等待真值"}</b></div>
+        <div><span>工程回归</span><b>{engineeringEvaluation ? `${engineeringEvaluation.decision_regression.passed}/${engineeringEvaluation.decision_regression.total}` : "加载中"}</b></div>
       </div>
       <div className={`goldStatus ${parserAccuracy?.gate ?? "awaiting_verified_dataset"}`}><b>GOLD STANDARD</b><span>{parserAccuracy?.message ?? "正在读取解析器评测状态…"}</span>{parserAccuracy?.available && <small>{parserAccuracy.verified_cases} 场 verified · {parserAccuracy.passed_cases} 通过 · {parserAccuracy.failed_cases} 失败</small>}</div>
       {authAvailable === false && <div className="authNotice"><b>当前以匿名体验模式运行</b><p>历史与玩家画像接口已经完成；在 Render 配置数据库和登录密钥后，这里会自动开放账户登录与数据隔离。</p></div>}

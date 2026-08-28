@@ -155,8 +155,14 @@ class CS2CoachWorkflow:
 
     MAX_TOOL_CALLS = 6
 
-    def __init__(self, planner: ToolPlanner | None = None) -> None:
+    def __init__(
+        self,
+        planner: ToolPlanner | None = None,
+        *,
+        enable_critic: bool = True,
+    ) -> None:
         self.planner = planner or RuleBasedToolPlanner()
+        self.enable_critic = enable_critic
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -407,8 +413,26 @@ class CS2CoachWorkflow:
             "execution_trace": trace,
         }
 
-    @staticmethod
-    def _critic_gate(state: CoachState) -> CoachState:
+    def _critic_gate(self, state: CoachState) -> CoachState:
+        if not self.enable_critic:
+            trace = list(state.get("execution_trace", []))
+            trace.append("critic_gate: A/B 基线显式关闭 Critic，跳过独立复核")
+            runs = list(state.get("agent_runs", []))
+            runs.append(
+                AgentRun(
+                    agent_id="critic",
+                    title="Critic Agent",
+                    status="skipped",
+                    summary="A/B 基线关闭独立复核，仅用于测量 Coach 主路径的资源与覆盖。",
+                    output_count=0,
+                )
+            )
+            return {
+                "critic_reasons": [],
+                "execution_trace": trace,
+                "agent_runs": runs,
+            }
+
         reasons: list[str] = []
         audit = state["quality_audit"]
         if audit.gate != "pass":

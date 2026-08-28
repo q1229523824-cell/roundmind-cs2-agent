@@ -4,6 +4,7 @@ RoundMind 是一个可解释的 CS2 比赛复盘项目：用户上传 Source 2 `
 结构化回合事实，再由受控 Agent 动态选择分析工具，输出带关键回合证据的训练建议。
 
 项目目标、目标架构、量化指标与后续六个迭代版本见 [`cs2agent.md`](cs2agent.md)。
+面试/简历的真实量化口径见 [`docs/resume-project.md`](docs/resume-project.md)。
 
 ## 技术架构
 
@@ -257,6 +258,12 @@ CLI 支持人类可读报告、`--json` 调试输出、`--interactive` 连续追
 `evaluation/dust2_decisions.json` 是第一版 14 场景人工设计的边界回归集，覆盖孤立前压、附近支援、
 成功补枪、数据缺失与最后存活者。运行 `python -m chapter07_cs2_coach.evaluation` 可查看准确率。
 它目前是工程回归基线，不代表真实教练标注的泛化效果；下一步应加入来自真实 Demo 的盲测样本。
+
+为了让指标可以直接用于 CI 和简历，`python -m chapter07_cs2_coach.evaluation_report` 会生成一份匿名
+Markdown 评测摘要（加 `--format json` 可输出结构化报告）。它同时报告决策回归、阵营/接战类型/风险/
+炸弹/支援等场景覆盖，以及 Coach-only 与 Coach+Critic 的执行路径对照。报告会明确把真实 Demo 准确率、
+人工动作一致率和玩家分数提升列为 `not_evaluated`，因此 `14/14` 只能表述为“14 个工程边界场景回归通过”，
+不能写成真实用户准确率或效果提升。
 
 真实评测通过 `annotation_cli` 单独进行，不依赖网页。导出器会分层选择高风险、阈值边界、低风险对照和
 低置信度场景，并删除昵称、SteamID、比赛 ID 与 Demo 路径：

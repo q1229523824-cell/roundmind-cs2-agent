@@ -19,6 +19,9 @@ RoundMind 使用 FastAPI 接收 CS2 Source 2 `.dem`，用 `demoparser2` 提取�
 新 Demo 进入长期玩家画像前，可使用 `python -m chapter07_cs2_coach.quality_cli` 运行数据质量门禁。
 它会区分解析失败与玩家表现，关键事件覆盖不足的比赛不会被建议用于画像更新。
 
+可用 `python -m chapter07_cs2_coach.evaluation_report` 生成可复现的离线评测报告：它把工程边界回归、
+场景覆盖和 Coach/Critic A/B 执行差异集中输出，并明确区分“已测量”和“尚无真值”的指标。
+
 画像验证后，可使用 `python -m chapter07_cs2_coach.context_cli` 生成匿名、最大 32 KB 的教练上下文包。
 该步骤只组合事实、个人案例与本地知识，不调用外部大模型。
 

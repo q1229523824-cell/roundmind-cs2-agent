@@ -87,12 +87,17 @@ class CS2CoachRuntime:
         self.coach_service = coach_service or CoachService()
 
     @classmethod
-    def create(cls, *, use_llm_planner: bool = False) -> "CS2CoachRuntime":
+    def create(
+        cls,
+        *,
+        use_llm_planner: bool = False,
+        enable_critic: bool = True,
+    ) -> "CS2CoachRuntime":
         planner = DeepSeekToolPlanner() if use_llm_planner else RuleBasedToolPlanner()
         repository = repository_from_environment() or MatchRepository()
         runtime = cls(
             repository=repository,
-            workflow=CS2CoachWorkflow(planner),
+            workflow=CS2CoachWorkflow(planner, enable_critic=enable_critic),
             coach_service=CoachService.from_environment(),
         )
         runtime.repository.save(SAMPLE_MATCH)
