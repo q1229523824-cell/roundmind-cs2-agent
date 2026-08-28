@@ -365,6 +365,7 @@ class AnalysisResponse(BaseModel):
     tools_used: list[str]
     execution_trace: list[str]
     agent_runs: list[AgentRun] = Field(default_factory=list)
+    critic_trigger_reasons: list[str] = Field(default_factory=list, max_length=8)
     knowledge_references: list[KnowledgeReference] = Field(default_factory=list)
     decision_cards: list[DecisionCard] = Field(default_factory=list)
     contact_decision_cards: list[ContactDecisionCard] = Field(default_factory=list)

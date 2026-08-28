@@ -1536,6 +1536,8 @@ class CS2CoachWorkflowTests(unittest.TestCase):
         agent_ids = [item.agent_id for item in result.agent_runs]
         self.assertEqual(agent_ids, ["coach", "critic"])
         self.assertEqual(result.agent_runs[1].status, "warning")
+        self.assertTrue(result.critic_trigger_reasons)
+        self.assertIn("数据质量门禁为 fail", result.critic_trigger_reasons)
         self.assertLessEqual(result.agent_runs[0].output_count, 6)
         self.assertTrue(any(item.startswith("data_quality_check:") for item in result.execution_trace))
         self.assertTrue(any(item.startswith("evidence_validator:") for item in result.execution_trace))
