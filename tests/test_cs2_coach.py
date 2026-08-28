@@ -61,6 +61,7 @@ from chapter07_cs2_coach.weapon_role_profile import (
     infer_role_profile,
     weapon_category,
 )
+from chapter07_cs2_coach.workflow import CS2CoachWorkflow
 
 
 class FakeDemoParser:
@@ -1522,32 +1523,42 @@ class CS2CoachWorkflowTests(unittest.TestCase):
         self.assertEqual(len(result.tools_used), 6)
         self.assertLessEqual(len(result.tools_used), 6)
         self.assertTrue(any(item.severity == "high" for item in result.evidence))
-        self.assertEqual(result.confidence, "high")
+        self.assertEqual(result.confidence, "low")
+        self.assertEqual(result.agent_runs[-1].agent_id, "critic")
         self.assertTrue(result.execution_trace[-1].startswith("reporter:"))
 
-    def test_multi_agent_team_exposes_bounded_specialist_runs(self):
+    def test_controlled_agent_layer_only_exposes_coach_and_conditional_critic(self):
         result = self.runtime.analyze(
             match_id=SAMPLE_MATCH.match_id,
             question="请综合复盘并找出最需要改进的问题",
         )
 
         agent_ids = [item.agent_id for item in result.agent_runs]
-        self.assertEqual(agent_ids[0], "supervisor")
-        self.assertEqual(agent_ids[-1], "coach_reporter")
-        self.assertEqual(len(agent_ids), len(set(agent_ids)))
-        self.assertEqual(
-            set(agent_ids),
-            {
-                "supervisor",
-                "data_quality",
-                "situation_analyst",
-                "decision_strategist",
-                "tactical_knowledge",
-                "evidence_reviewer",
-                "coach_reporter",
-            },
-        )
+        self.assertEqual(agent_ids, ["coach", "critic"])
+        self.assertEqual(result.agent_runs[1].status, "warning")
         self.assertLessEqual(result.agent_runs[0].output_count, 6)
+        self.assertTrue(any(item.startswith("data_quality_check:") for item in result.execution_trace))
+        self.assertTrue(any(item.startswith("evidence_validator:") for item in result.execution_trace))
+
+    def test_critic_gate_skips_independent_review_when_risk_is_low(self):
+        workflow = CS2CoachWorkflow()
+        audit = audit_match(SAMPLE_MATCH).model_copy(
+            update={"gate": "pass", "warnings": []}
+        )
+
+        result = workflow._critic_gate({
+            "quality_audit": audit,
+            "confidence": "high",
+            "removed_evidence_count": 0,
+            "decision_cards": [],
+            "contact_decision_cards": [],
+            "execution_trace": [],
+            "agent_runs": [],
+        })
+
+        self.assertEqual(result["critic_reasons"], [])
+        self.assertEqual(result["agent_runs"][0].agent_id, "critic")
+        self.assertEqual(result["agent_runs"][0].status, "skipped")
 
     def test_unknown_match_is_rejected(self):
         with self.assertRaises(KeyError):

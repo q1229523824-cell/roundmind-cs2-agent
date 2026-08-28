@@ -85,8 +85,9 @@ test("keeps demo uploads bounded and connected to the backend", async () => {
   assert.match(page, /decision_cards/);
   assert.match(page, /contact_decision_cards/);
   assert.match(page, /agent_runs/);
-  assert.match(page, /MULTI-AGENT TEAM/);
-  assert.match(page, /本次复盘由哪些 Agent 协作/);
+  assert.match(page, /CONTROLLED AGENT LAYER/);
+  assert.match(page, /只保留两个真正需要判断的 Agent/);
+  assert.match(page, /Critic 只有命中风险门槛才执行/);
   assert.match(page, /当时还有哪些选择/);
   assert.match(page, /人工校准样本/);
   assert.match(page, /decision-annotations/);

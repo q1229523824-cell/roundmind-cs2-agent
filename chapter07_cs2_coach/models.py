@@ -346,19 +346,11 @@ class PersonalContactContrast(BaseModel):
 
 
 class AgentRun(BaseModel):
-    """一次专业 Agent 的可观察执行结果。"""
+    """真正需要自主判断的 Agent 执行结果。"""
 
     model_config = ConfigDict(extra="forbid")
 
-    agent_id: Literal[
-        "supervisor",
-        "data_quality",
-        "situation_analyst",
-        "decision_strategist",
-        "tactical_knowledge",
-        "evidence_reviewer",
-        "coach_reporter",
-    ]
+    agent_id: Literal["coach", "critic"]
     title: str = Field(min_length=1, max_length=80)
     status: Literal["completed", "warning", "skipped"]
     summary: str = Field(min_length=1, max_length=300)

@@ -27,7 +27,7 @@ Demo 解析准确度 × 局势建模能力 × 决策评测可信度 × 长期个
 | 分析层 | 首轮交火、补枪、残局、经济、道具、接战风险和候选动作 | 权重主要来自规则与少量工程场景，尚未经过教练级标注校准 |
 | 知识层 | Dust2 本地知识库、关键词/可选向量检索、个人成功案例 | 地图覆盖有限；知识质量比知识数量更重要 |
 | 个性化 | 多场玩家画像、角色倾向、趋势和训练目标 | 样本较少时画像容易不稳定，需要时间衰减和最小样本门槛 |
-| Agent 层 | LangGraph 多智能体协作、证据白名单、离线回答、可选 DeepSeek | 还应加强失败恢复、动态预算和回答质量评测 |
+| Agent 层 | LangGraph 受控双 Agent、证据白名单、离线回答、可选 DeepSeek | Critic 按风险触发，仍需用人工标注评测收益 |
 | 产品层 | 500 MB Demo、选人、进度、历史、画像、质量报告、连续对话 | 正式账号体系和持久化需要启用 PostgreSQL/JWT |
 | 工程层 | FastAPI、React、Docker、Render、Sites、测试、可选 PostgreSQL/Redis/Celery/R2 | 免费部署适合演示，不适合高并发大文件生产流量 |
 
@@ -71,8 +71,8 @@ Object Storage     Redis Queue
           │                     │
           └──────────┬──────────┘
                      ▼
-              LangGraph Multi-Agent Team
-  事实工具 → 画像工具 → 知识检索 → 建议生成 → 证据审核
+               LangGraph Controlled Agents
+       Coach 选择工具与生成建议 → 风险触发 Critic
                      │
                      ▼
              离线模板 / 可选大模型表达
@@ -80,7 +80,8 @@ Object Storage     Redis Queue
 
 ## 4. Agent 应拥有的工具
 
-Agent 不应直接读取整份 Demo，而应调用范围明确的结构化工具：
+解析、质量门禁、指标、评分和证据校验不是 Agent，而是确定性管道。Coach 不直接读取整份 Demo，
+只调用范围明确的结构化工具；Critic 仅在质量、置信度或高风险门槛命中时独立回查证据：
 
 | 工具 | 输入 | 输出 | 作用 |
 | --- | --- | --- | --- |

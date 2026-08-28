@@ -29,7 +29,7 @@ from chapter07_cs2_coach.models import (
     KnowledgeReference,
     MatchRecord,
 )
-from chapter07_cs2_coach.quality_audit import audit_match
+from chapter07_cs2_coach.quality_audit import MatchQualityAudit, audit_match
 from chapter07_cs2_coach.tools import ANALYSIS_TOOLS, get_match_summary
 
 
@@ -48,6 +48,9 @@ class CoachState(TypedDict, total=False):
     decision_cards: list[DecisionCard]
     contact_decision_cards: list[ContactDecisionCard]
     agent_runs: list[AgentRun]
+    quality_audit: MatchQualityAudit
+    removed_evidence_count: int
+    critic_reasons: list[str]
 
 
 class ToolPlanner(Protocol):
@@ -148,7 +151,7 @@ class DeepSeekToolPlanner:
 
 
 class CS2CoachWorkflow:
-    """Planner → Tool loop → Reviewer → Report 的受控 Agent 工作流。"""
+    """确定性数据管道 + Coach Agent + 按风险触发的 Critic。"""
 
     MAX_TOOL_CALLS = 6
 
@@ -159,29 +162,37 @@ class CS2CoachWorkflow:
     def _build_graph(self):
         builder = StateGraph(CoachState)
         builder.add_node("prepare", self._prepare)
-        builder.add_node("supervisor_agent", self._planner)
-        builder.add_node("data_quality_agent", self._data_quality_agent)
+        builder.add_node("data_quality_check", self._data_quality_check)
+        builder.add_node("coach_agent", self._coach_agent)
         builder.add_node("tool_executor", self._tool_executor)
-        builder.add_node("reviewer", self._reviewer)
+        builder.add_node("evidence_validator", self._evidence_validator)
         builder.add_node("decision_scorer", self._decision_scorer)
         builder.add_node("knowledge_retriever", self._knowledge_retriever)
+        builder.add_node("critic_gate", self._critic_gate)
+        builder.add_node("critic_agent", self._critic_agent)
         builder.add_node("reporter", self._reporter)
         builder.add_edge(START, "prepare")
-        builder.add_edge("prepare", "supervisor_agent")
-        builder.add_edge("supervisor_agent", "data_quality_agent")
+        builder.add_edge("prepare", "data_quality_check")
+        builder.add_edge("data_quality_check", "coach_agent")
         builder.add_conditional_edges(
-            "data_quality_agent",
-            self._next_after_quality,
-            {"tool": "tool_executor", "review": "reviewer"},
+            "coach_agent",
+            self._next_after_coach,
+            {"tool": "tool_executor", "review": "evidence_validator"},
         )
         builder.add_conditional_edges(
             "tool_executor",
             self._next_after_tool,
-            {"tool": "tool_executor", "review": "reviewer"},
+            {"tool": "tool_executor", "review": "evidence_validator"},
         )
-        builder.add_edge("reviewer", "decision_scorer")
+        builder.add_edge("evidence_validator", "decision_scorer")
         builder.add_edge("decision_scorer", "knowledge_retriever")
-        builder.add_edge("knowledge_retriever", "reporter")
+        builder.add_edge("knowledge_retriever", "critic_gate")
+        builder.add_conditional_edges(
+            "critic_gate",
+            self._next_after_critic_gate,
+            {"critic": "critic_agent", "report": "reporter"},
+        )
+        builder.add_edge("critic_agent", "reporter")
         builder.add_edge("reporter", END)
         return builder.compile(name="cs2-review-coach")
 
@@ -199,22 +210,24 @@ class CS2CoachWorkflow:
             "decision_cards": [],
             "contact_decision_cards": [],
             "agent_runs": [],
+            "removed_evidence_count": 0,
+            "critic_reasons": [],
         }
 
-    def _planner(self, state: CoachState) -> CoachState:
+    def _coach_agent(self, state: CoachState) -> CoachState:
         tools = self.planner.plan(
             question=state["question"],
             summary=state["summary"],
         )[: self.MAX_TOOL_CALLS]
         trace = list(state["execution_trace"])
-        trace.append(f"supervisor_agent: 选择工具 {', '.join(tools)}")
+        trace.append(f"coach_agent: 根据用户问题选择工具 {', '.join(tools)}")
         runs = list(state.get("agent_runs", []))
         runs.append(
             AgentRun(
-                agent_id="supervisor",
-                title="主管 Agent",
+                agent_id="coach",
+                title="Coach Agent",
                 status="completed",
-                summary=f"根据问题分配 {len(tools)} 个只读分析工具，并设置最大调用预算。",
+                summary=f"理解用户问题并选择 {len(tools)} 个受限分析工具；最终报告只引用程序返回的事实。",
                 output_count=len(tools),
             )
         )
@@ -225,30 +238,17 @@ class CS2CoachWorkflow:
         }
 
     @staticmethod
-    def _next_after_quality(state: CoachState) -> str:
+    def _next_after_coach(state: CoachState) -> str:
         return "tool" if state.get("pending_tools") else "review"
 
     @staticmethod
-    def _data_quality_agent(state: CoachState) -> CoachState:
+    def _data_quality_check(state: CoachState) -> CoachState:
         audit = audit_match(state["match"])
         trace = list(state.get("execution_trace", []))
         trace.append(
-            f"data_quality_agent: 质量分 {audit.quality_score}/100，门禁 {audit.gate}"
+            f"data_quality_check: 确定性质量分 {audit.quality_score}/100，门禁 {audit.gate}"
         )
-        runs = list(state.get("agent_runs", []))
-        runs.append(
-            AgentRun(
-                agent_id="data_quality",
-                title="数据质量 Agent",
-                status="completed" if audit.gate == "pass" else "warning",
-                summary=(
-                    f"完成 {len(audit.checks)} 项覆盖率与一致性检查；"
-                    f"质量门禁为 {audit.gate}。"
-                ),
-                output_count=len(audit.warnings),
-            )
-        )
-        return {"execution_trace": trace, "agent_runs": runs}
+        return {"execution_trace": trace, "quality_audit": audit}
 
     @staticmethod
     def _tool_executor(state: CoachState) -> CoachState:
@@ -261,24 +261,12 @@ class CS2CoachWorkflow:
         used = [*state.get("tools_used", []), tool_name]
         trace = list(state.get("execution_trace", []))
         trace.append(f"tool_executor: {tool_name} 返回 {len(evidence)} 条累计证据")
-        runs = list(state.get("agent_runs", []))
-        if not pending:
-            runs.append(
-                AgentRun(
-                    agent_id="situation_analyst",
-                    title="局势分析 Agent",
-                    status="completed",
-                    summary=f"运行 {len(used)} 类确定性工具，还原关键回合与接战条件。",
-                    output_count=len(evidence),
-                )
-            )
         return {
             "pending_tools": pending,
             "tools_used": used,
             "evidence": evidence,
             "execution_trace": trace,
             "iteration": state.get("iteration", 0) + 1,
-            "agent_runs": runs,
         }
 
     @classmethod
@@ -288,7 +276,7 @@ class CS2CoachWorkflow:
         return "review"
 
     @staticmethod
-    def _reviewer(state: CoachState) -> CoachState:
+    def _evidence_validator(state: CoachState) -> CoachState:
         valid_rounds = {item.number for item in state["match"].rounds}
         unique: list[Evidence] = []
         seen: set[tuple[str, tuple[int, ...]]] = set()
@@ -302,25 +290,15 @@ class CS2CoachWorkflow:
         order = {"high": 0, "medium": 1, "positive": 2}
         unique.sort(key=lambda item: order[item.severity])
         trace = list(state.get("execution_trace", []))
-        trace.append(f"reviewer: 校验并保留 {len(unique)} 条可追溯证据")
-        runs = list(state.get("agent_runs", []))
+        trace.append(f"evidence_validator: 规则校验并保留 {len(unique)} 条可追溯证据")
         removed_count = len(state.get("evidence", [])) - len(unique)
-        runs.append(
-            AgentRun(
-                agent_id="evidence_reviewer",
-                title="证据审核 Agent",
-                status="completed" if unique else "warning",
-                summary=f"验证回合引用并去重，移除 {removed_count} 条无效或重复证据。",
-                output_count=len(unique),
-            )
-        )
         high_count = sum(item.severity == "high" for item in unique)
         confidence = "high" if len(unique) >= 3 and high_count else "medium" if unique else "low"
         return {
             "evidence": unique,
             "execution_trace": trace,
             "confidence": confidence,
-            "agent_runs": runs,
+            "removed_evidence_count": removed_count,
         }
 
     @staticmethod
@@ -383,17 +361,7 @@ class CS2CoachWorkflow:
             answer = "\n".join(lines)
         trace = list(state.get("execution_trace", []))
         trace.append("reporter: 已生成带回合引用的中文复盘")
-        runs = list(state.get("agent_runs", []))
-        runs.append(
-            AgentRun(
-                agent_id="coach_reporter",
-                title="教练表达 Agent",
-                status="completed",
-                summary="将已审核事实、候选动作和战术知识组织为可执行训练建议。",
-                output_count=len(evidence),
-            )
-        )
-        return {"answer": answer, "execution_trace": trace, "agent_runs": runs}
+        return {"answer": answer, "execution_trace": trace}
 
     @staticmethod
     def _knowledge_retriever(state: CoachState) -> CoachState:
@@ -418,24 +386,9 @@ class CS2CoachWorkflow:
         trace.append(
             f"knowledge_retriever: 从 Dust2 本地知识库命中 {len(references)} 条战术原则"
         )
-        runs = list(state.get("agent_runs", []))
-        runs.append(
-            AgentRun(
-                agent_id="tactical_knowledge",
-                title="战术知识 Agent",
-                status="completed" if references else "skipped",
-                summary=(
-                    f"按地图、问题和证据检索到 {len(references)} 条版本化战术原则。"
-                    if references
-                    else "当前地图或问题未命中可验证的版本化战术知识。"
-                ),
-                output_count=len(references),
-            )
-        )
         return {
             "knowledge_references": references,
             "execution_trace": trace,
-            "agent_runs": runs,
         }
 
     @staticmethod
@@ -448,21 +401,94 @@ class CS2CoachWorkflow:
             f"{len(state['match'].contact_episodes)} 次交火中选出 "
             f"{len(contact_cards)} 张无结果泄漏比较卡"
         )
-        runs = list(state.get("agent_runs", []))
-        runs.append(
-            AgentRun(
-                agent_id="decision_strategist",
-                title="候选动作 Agent",
-                status="completed" if cards or contact_cards else "skipped",
-                summary=(
-                    f"生成 {len(cards)} 张死亡复盘卡和 {len(contact_cards)} 张事前动作比较卡。"
-                ),
-                output_count=len(cards) + len(contact_cards),
-            )
-        )
         return {
             "decision_cards": cards,
             "contact_decision_cards": contact_cards,
+            "execution_trace": trace,
+        }
+
+    @staticmethod
+    def _critic_gate(state: CoachState) -> CoachState:
+        reasons: list[str] = []
+        audit = state["quality_audit"]
+        if audit.gate != "pass":
+            reasons.append(f"数据质量门禁为 {audit.gate}")
+        if state.get("confidence") == "low":
+            reasons.append("整体证据置信度较低")
+        if state.get("removed_evidence_count", 0):
+            reasons.append("证据校验发现重复或无效引用")
+        uncertain_high_risk = [
+            card
+            for card in state.get("decision_cards", [])
+            if card.risk_level == "high" and card.confidence != "high"
+        ]
+        uncertain_high_risk.extend(
+            card
+            for card in state.get("contact_decision_cards", [])
+            if card.risk_level == "high" and card.confidence != "high"
+        )
+        if uncertain_high_risk:
+            reasons.append(f"存在 {len(uncertain_high_risk)} 个高风险但非高置信判断")
+
+        trace = list(state.get("execution_trace", []))
+        runs = list(state.get("agent_runs", []))
+        if reasons:
+            trace.append(f"critic_gate: 命中 {len(reasons)} 个复核条件，触发 Critic")
+        else:
+            trace.append("critic_gate: 未命中复核条件，跳过 Critic 以节省资源")
+            runs.append(
+                AgentRun(
+                    agent_id="critic",
+                    title="Critic Agent",
+                    status="skipped",
+                    summary="数据、证据和高风险判断均通过门槛，本次没有调用独立复核。",
+                    output_count=0,
+                )
+            )
+        return {
+            "critic_reasons": reasons,
+            "execution_trace": trace,
+            "agent_runs": runs,
+        }
+
+    @staticmethod
+    def _next_after_critic_gate(state: CoachState) -> str:
+        return "critic" if state.get("critic_reasons") else "report"
+
+    @staticmethod
+    def _critic_agent(state: CoachState) -> CoachState:
+        """仅对触发风险门槛的结论做独立、只读复核。"""
+
+        audit = audit_match(state["match"])
+        valid_rounds = {item.number for item in state["match"].rounds}
+        unsupported = sum(
+            bool(set(item.round_numbers) - valid_rounds)
+            for item in state.get("evidence", [])
+        )
+        confidence = state.get("confidence", "low")
+        if audit.gate == "fail" or unsupported:
+            confidence = "low"
+        elif audit.gate == "review" and confidence == "high":
+            confidence = "medium"
+
+        reasons = state.get("critic_reasons", [])
+        trace = list(state.get("execution_trace", []))
+        trace.append(
+            f"critic_agent: 独立复核 {len(reasons)} 个触发原因，"
+            f"无来源回合引用 {unsupported} 条"
+        )
+        runs = list(state.get("agent_runs", []))
+        runs.append(
+            AgentRun(
+                agent_id="critic",
+                title="Critic Agent",
+                status="warning" if confidence == "low" else "completed",
+                summary="；".join(reasons) + f"；独立回查 Demo 质量与回合引用后，置信度为 {confidence}。",
+                output_count=len(reasons),
+            )
+        )
+        return {
+            "confidence": confidence,
             "execution_trace": trace,
             "agent_runs": runs,
         }
