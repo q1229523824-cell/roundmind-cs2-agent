@@ -345,6 +345,26 @@ class PersonalContactContrast(BaseModel):
     confidence: Literal["high", "medium", "low"]
 
 
+class AgentRun(BaseModel):
+    """一次专业 Agent 的可观察执行结果。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: Literal[
+        "supervisor",
+        "data_quality",
+        "situation_analyst",
+        "decision_strategist",
+        "tactical_knowledge",
+        "evidence_reviewer",
+        "coach_reporter",
+    ]
+    title: str = Field(min_length=1, max_length=80)
+    status: Literal["completed", "warning", "skipped"]
+    summary: str = Field(min_length=1, max_length=300)
+    output_count: int = Field(default=0, ge=0, le=10000)
+
+
 class AnalysisResponse(BaseModel):
     match_id: str
     answer: str
@@ -352,6 +372,7 @@ class AnalysisResponse(BaseModel):
     evidence: list[Evidence]
     tools_used: list[str]
     execution_trace: list[str]
+    agent_runs: list[AgentRun] = Field(default_factory=list)
     knowledge_references: list[KnowledgeReference] = Field(default_factory=list)
     decision_cards: list[DecisionCard] = Field(default_factory=list)
     contact_decision_cards: list[ContactDecisionCard] = Field(default_factory=list)

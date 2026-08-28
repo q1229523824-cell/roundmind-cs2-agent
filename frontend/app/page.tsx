@@ -102,12 +102,21 @@ type CalibrationSummary = {
   agreement_rate: number | null;
 };
 
+type AgentRun = {
+  agent_id: "supervisor" | "data_quality" | "situation_analyst" | "decision_strategist" | "tactical_knowledge" | "evidence_reviewer" | "coach_reporter";
+  title: string;
+  status: "completed" | "warning" | "skipped";
+  summary: string;
+  output_count: number;
+};
+
 type AgentAnalysis = {
   answer: string;
   summary: Record<string, string | number>;
   evidence: Array<Omit<Evidence, "rounds"> & { round_numbers: number[] }>;
   tools_used: string[];
   execution_trace: string[];
+  agent_runs: AgentRun[];
   knowledge_references: KnowledgeReference[];
   decision_cards: DecisionCard[];
   contact_decision_cards: ContactDecisionCard[];
@@ -559,6 +568,7 @@ export default function Home() {
     "reporter · 生成中文训练建议",
   ];
   const trace = remoteAnalysis?.execution_trace ?? localTrace;
+  const agentRuns = remoteAnalysis?.agent_runs ?? [];
   const decisionCards = remoteAnalysis?.decision_cards ?? [];
   const contactDecisionCards = remoteAnalysis?.contact_decision_cards ?? [];
   const knowledgeReferences = remoteAnalysis?.knowledge_references ?? [];
@@ -1340,6 +1350,7 @@ export default function Home() {
         <header><div><p className="eyebrow">02 / COACH REPORT</p><h2>{match.player_name} · {match.map_name}</h2></div><span className="confidence">置信度 {confidence}</span></header>
         <div className="metrics"><div><span>SCORE</span><strong>{stats.score}</strong></div><div><span>K / D / A</span><strong>{stats.kills} / {stats.deaths} / {stats.assists}</strong></div><div><span>ADR</span><strong>{stats.adr}</strong></div><div><span>KAST</span><strong>{stats.kast}%</strong></div><div><span>ROUNDS</span><strong>{stats.rounds}</strong></div></div>
         <div className="reportGrid"><section><h3>教练结论</h3><p className="lead">{remoteAnalysis?.answer || `${match.player_name} 在 ${match.map_name} 打出 ${stats.kills}/${stats.deaths}/${stats.assists}，ADR ${stats.adr}，KAST ${stats.kast}%。`}</p>{evidence.map((item, index) => <div className="finding" key={item.finding}><b>{index + 1}. {item.finding}</b><p>证据：{item.metric}；相关回合：{item.rounds.map((round) => `R${round}`).join("、") || "全场统计"}。</p><p>训练建议：{item.suggestion}</p></div>)}<p className="focus">下一场先只跟踪最高优先级问题，避免一次同时修改太多习惯。</p></section><aside><h3>证据卡片</h3>{evidence.map((item) => <div className={`evidence ${item.severity}`} key={item.metric}><span>{item.severity.toUpperCase()}</span><p>{item.metric}</p><i>{item.rounds.map((round) => `R${round}`).join(" · ") || "全场统计"}</i></div>)}</aside></div>
+        {agentRuns.length > 0 && <section className="agentTeamPanel"><div className="sectionTitle"><div><p className="eyebrow">MULTI-AGENT TEAM</p><h3>本次复盘由哪些 Agent 协作？</h3></div><span>专业 Agent 共享结构化状态，统计工具不交给大模型猜测</span></div><div className="agentTeamGrid">{agentRuns.map((agent, index) => <article className={agent.status} key={agent.agent_id}><header><i>{String(index + 1).padStart(2, "0")}</i><span>{agent.status === "completed" ? "完成" : agent.status === "warning" ? "需复核" : "跳过"}</span></header><b>{agent.title}</b><p>{agent.summary}</p><small>结构化输出 {agent.output_count} 项</small></article>)}</div></section>}
         {qualityAudit && <section className={`qualityPanel ${qualityAudit.gate}`}><div className="qualityLead"><div><p className="eyebrow">DATA QUALITY GATE</p><h3>这份 Demo 的结论能信到什么程度？</h3></div><strong>{qualityAudit.quality_score}<small>/100</small></strong></div><div className="qualityChecks">{qualityAudit.checks.map((check) => <article className={check.status} key={check.key}><span>{check.status === "pass" ? "通过" : check.status === "warning" ? "复核" : "失败"}</span><b>{check.observed}</b><p>{check.message}</p><small>期望：{check.expected}</small></article>)}</div>{qualityAudit.warnings.length > 0 && <p className="qualityWarning">质量门禁不会把解析缺失误判成你的游戏问题：{qualityAudit.warnings.join("；")}</p>}</section>}
         {contactDecisionCards.length > 0 && <section className="contactDecisionSection">
           <div className="sectionTitle">

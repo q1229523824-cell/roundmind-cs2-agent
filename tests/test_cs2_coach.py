@@ -1525,6 +1525,30 @@ class CS2CoachWorkflowTests(unittest.TestCase):
         self.assertEqual(result.confidence, "high")
         self.assertTrue(result.execution_trace[-1].startswith("reporter:"))
 
+    def test_multi_agent_team_exposes_bounded_specialist_runs(self):
+        result = self.runtime.analyze(
+            match_id=SAMPLE_MATCH.match_id,
+            question="请综合复盘并找出最需要改进的问题",
+        )
+
+        agent_ids = [item.agent_id for item in result.agent_runs]
+        self.assertEqual(agent_ids[0], "supervisor")
+        self.assertEqual(agent_ids[-1], "coach_reporter")
+        self.assertEqual(len(agent_ids), len(set(agent_ids)))
+        self.assertEqual(
+            set(agent_ids),
+            {
+                "supervisor",
+                "data_quality",
+                "situation_analyst",
+                "decision_strategist",
+                "tactical_knowledge",
+                "evidence_reviewer",
+                "coach_reporter",
+            },
+        )
+        self.assertLessEqual(result.agent_runs[0].output_count, 6)
+
     def test_unknown_match_is_rejected(self):
         with self.assertRaises(KeyError):
             self.runtime.analyze(match_id="missing", question="复盘")

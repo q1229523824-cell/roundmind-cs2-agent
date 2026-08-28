@@ -119,6 +119,7 @@ class CS2CoachRuntime:
             evidence=result.get("evidence", []),
             tools_used=result.get("tools_used", []),
             execution_trace=result.get("execution_trace", []),
+            agent_runs=result.get("agent_runs", []),
             knowledge_references=result.get("knowledge_references", []),
             decision_cards=result.get("decision_cards", []),
             contact_decision_cards=result.get("contact_decision_cards", []),

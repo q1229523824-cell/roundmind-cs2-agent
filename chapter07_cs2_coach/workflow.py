@@ -22,12 +22,14 @@ from chapter07_cs2_coach.knowledge_base import (
     retrieve_tactical_knowledge,
 )
 from chapter07_cs2_coach.models import (
+    AgentRun,
     ContactDecisionCard,
     DecisionCard,
     Evidence,
     KnowledgeReference,
     MatchRecord,
 )
+from chapter07_cs2_coach.quality_audit import audit_match
 from chapter07_cs2_coach.tools import ANALYSIS_TOOLS, get_match_summary
 
 
@@ -45,6 +47,7 @@ class CoachState(TypedDict, total=False):
     knowledge_references: list[KnowledgeReference]
     decision_cards: list[DecisionCard]
     contact_decision_cards: list[ContactDecisionCard]
+    agent_runs: list[AgentRun]
 
 
 class ToolPlanner(Protocol):
@@ -156,17 +159,19 @@ class CS2CoachWorkflow:
     def _build_graph(self):
         builder = StateGraph(CoachState)
         builder.add_node("prepare", self._prepare)
-        builder.add_node("planner", self._planner)
+        builder.add_node("supervisor_agent", self._planner)
+        builder.add_node("data_quality_agent", self._data_quality_agent)
         builder.add_node("tool_executor", self._tool_executor)
         builder.add_node("reviewer", self._reviewer)
         builder.add_node("decision_scorer", self._decision_scorer)
         builder.add_node("knowledge_retriever", self._knowledge_retriever)
         builder.add_node("reporter", self._reporter)
         builder.add_edge(START, "prepare")
-        builder.add_edge("prepare", "planner")
+        builder.add_edge("prepare", "supervisor_agent")
+        builder.add_edge("supervisor_agent", "data_quality_agent")
         builder.add_conditional_edges(
-            "planner",
-            self._next_after_plan,
+            "data_quality_agent",
+            self._next_after_quality,
             {"tool": "tool_executor", "review": "reviewer"},
         )
         builder.add_conditional_edges(
@@ -193,6 +198,7 @@ class CS2CoachWorkflow:
             "knowledge_references": [],
             "decision_cards": [],
             "contact_decision_cards": [],
+            "agent_runs": [],
         }
 
     def _planner(self, state: CoachState) -> CoachState:
@@ -201,12 +207,48 @@ class CS2CoachWorkflow:
             summary=state["summary"],
         )[: self.MAX_TOOL_CALLS]
         trace = list(state["execution_trace"])
-        trace.append(f"planner: 选择工具 {', '.join(tools)}")
-        return {"pending_tools": tools, "execution_trace": trace}
+        trace.append(f"supervisor_agent: 选择工具 {', '.join(tools)}")
+        runs = list(state.get("agent_runs", []))
+        runs.append(
+            AgentRun(
+                agent_id="supervisor",
+                title="主管 Agent",
+                status="completed",
+                summary=f"根据问题分配 {len(tools)} 个只读分析工具，并设置最大调用预算。",
+                output_count=len(tools),
+            )
+        )
+        return {
+            "pending_tools": tools,
+            "execution_trace": trace,
+            "agent_runs": runs,
+        }
 
     @staticmethod
-    def _next_after_plan(state: CoachState) -> str:
+    def _next_after_quality(state: CoachState) -> str:
         return "tool" if state.get("pending_tools") else "review"
+
+    @staticmethod
+    def _data_quality_agent(state: CoachState) -> CoachState:
+        audit = audit_match(state["match"])
+        trace = list(state.get("execution_trace", []))
+        trace.append(
+            f"data_quality_agent: 质量分 {audit.quality_score}/100，门禁 {audit.gate}"
+        )
+        runs = list(state.get("agent_runs", []))
+        runs.append(
+            AgentRun(
+                agent_id="data_quality",
+                title="数据质量 Agent",
+                status="completed" if audit.gate == "pass" else "warning",
+                summary=(
+                    f"完成 {len(audit.checks)} 项覆盖率与一致性检查；"
+                    f"质量门禁为 {audit.gate}。"
+                ),
+                output_count=len(audit.warnings),
+            )
+        )
+        return {"execution_trace": trace, "agent_runs": runs}
 
     @staticmethod
     def _tool_executor(state: CoachState) -> CoachState:
@@ -219,12 +261,24 @@ class CS2CoachWorkflow:
         used = [*state.get("tools_used", []), tool_name]
         trace = list(state.get("execution_trace", []))
         trace.append(f"tool_executor: {tool_name} 返回 {len(evidence)} 条累计证据")
+        runs = list(state.get("agent_runs", []))
+        if not pending:
+            runs.append(
+                AgentRun(
+                    agent_id="situation_analyst",
+                    title="局势分析 Agent",
+                    status="completed",
+                    summary=f"运行 {len(used)} 类确定性工具，还原关键回合与接战条件。",
+                    output_count=len(evidence),
+                )
+            )
         return {
             "pending_tools": pending,
             "tools_used": used,
             "evidence": evidence,
             "execution_trace": trace,
             "iteration": state.get("iteration", 0) + 1,
+            "agent_runs": runs,
         }
 
     @classmethod
@@ -249,12 +303,24 @@ class CS2CoachWorkflow:
         unique.sort(key=lambda item: order[item.severity])
         trace = list(state.get("execution_trace", []))
         trace.append(f"reviewer: 校验并保留 {len(unique)} 条可追溯证据")
+        runs = list(state.get("agent_runs", []))
+        removed_count = len(state.get("evidence", [])) - len(unique)
+        runs.append(
+            AgentRun(
+                agent_id="evidence_reviewer",
+                title="证据审核 Agent",
+                status="completed" if unique else "warning",
+                summary=f"验证回合引用并去重，移除 {removed_count} 条无效或重复证据。",
+                output_count=len(unique),
+            )
+        )
         high_count = sum(item.severity == "high" for item in unique)
         confidence = "high" if len(unique) >= 3 and high_count else "medium" if unique else "low"
         return {
             "evidence": unique,
             "execution_trace": trace,
             "confidence": confidence,
+            "agent_runs": runs,
         }
 
     @staticmethod
@@ -317,7 +383,17 @@ class CS2CoachWorkflow:
             answer = "\n".join(lines)
         trace = list(state.get("execution_trace", []))
         trace.append("reporter: 已生成带回合引用的中文复盘")
-        return {"answer": answer, "execution_trace": trace}
+        runs = list(state.get("agent_runs", []))
+        runs.append(
+            AgentRun(
+                agent_id="coach_reporter",
+                title="教练表达 Agent",
+                status="completed",
+                summary="将已审核事实、候选动作和战术知识组织为可执行训练建议。",
+                output_count=len(evidence),
+            )
+        )
+        return {"answer": answer, "execution_trace": trace, "agent_runs": runs}
 
     @staticmethod
     def _knowledge_retriever(state: CoachState) -> CoachState:
@@ -342,9 +418,24 @@ class CS2CoachWorkflow:
         trace.append(
             f"knowledge_retriever: 从 Dust2 本地知识库命中 {len(references)} 条战术原则"
         )
+        runs = list(state.get("agent_runs", []))
+        runs.append(
+            AgentRun(
+                agent_id="tactical_knowledge",
+                title="战术知识 Agent",
+                status="completed" if references else "skipped",
+                summary=(
+                    f"按地图、问题和证据检索到 {len(references)} 条版本化战术原则。"
+                    if references
+                    else "当前地图或问题未命中可验证的版本化战术知识。"
+                ),
+                output_count=len(references),
+            )
+        )
         return {
             "knowledge_references": references,
             "execution_trace": trace,
+            "agent_runs": runs,
         }
 
     @staticmethod
@@ -357,10 +448,23 @@ class CS2CoachWorkflow:
             f"{len(state['match'].contact_episodes)} 次交火中选出 "
             f"{len(contact_cards)} 张无结果泄漏比较卡"
         )
+        runs = list(state.get("agent_runs", []))
+        runs.append(
+            AgentRun(
+                agent_id="decision_strategist",
+                title="候选动作 Agent",
+                status="completed" if cards or contact_cards else "skipped",
+                summary=(
+                    f"生成 {len(cards)} 张死亡复盘卡和 {len(contact_cards)} 张事前动作比较卡。"
+                ),
+                output_count=len(cards) + len(contact_cards),
+            )
+        )
         return {
             "decision_cards": cards,
             "contact_decision_cards": contact_cards,
             "execution_trace": trace,
+            "agent_runs": runs,
         }
 
 
